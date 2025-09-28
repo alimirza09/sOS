@@ -1056,10 +1056,6 @@ impl VirtioGpu {
         read_volatile(self.common_cfg.add(offset))
     }
 
-    unsafe fn read_common_u16(&self, offset: usize) -> u16 {
-        read_volatile(self.common_cfg.add(offset) as *const u16)
-    }
-
     unsafe fn read_common_u32(&self, offset: usize) -> u32 {
         read_volatile(self.common_cfg.add(offset) as *const u32)
     }

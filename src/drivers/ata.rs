@@ -612,7 +612,6 @@ impl SuperBlock {
 
 #[derive(Debug, Clone)]
 struct DirEntry {
-    name: String,
     start_cluster: u64,
     size: usize,
     is_directory: bool,
@@ -740,7 +739,6 @@ impl AtaFileSystem {
         self.directory.insert(
             name.to_string(),
             DirEntry {
-                name: name.to_string(),
                 start_cluster: first_cluster,
                 size: data.len(),
                 is_directory: false,

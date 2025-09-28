@@ -9,8 +9,6 @@ pub struct Processor {
 }
 
 struct ProcessorInner {
-    /// Processor ID
-    id: usize,
     /// Current running thread
     thread: Option<(Tid, Box<dyn Context>)>,
     /// The context of
@@ -24,10 +22,9 @@ impl Processor {
             inner: UnsafeCell::new(None),
         }
     }
-    pub unsafe fn init(&self, id: usize, context: Box<dyn Context>, manager: Arc<ThreadPool>) {
+    pub unsafe fn init(&self, context: Box<dyn Context>, manager: Arc<ThreadPool>) {
         unsafe {
             *self.inner.get() = Some(ProcessorInner {
-                id: id,
                 thread: None,
                 loop_context: context,
                 manager: manager,

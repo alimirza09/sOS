@@ -193,7 +193,7 @@ pub extern "C" fn ap_trampoline_entry() -> ! {
         }
         let loop_ctx_box: Box<dyn thread_pool::Context> = Box::from_raw(loop_ctx_raw);
 
-        procs.init(cpu_id, loop_ctx_box, pool_arc.clone());
+        procs.init(loop_ctx_box, pool_arc.clone());
 
         loop {
             procs.run_next(cpu_id);

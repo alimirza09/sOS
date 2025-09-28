@@ -1,6 +1,6 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use embedded_sdmmc::{Directory, Mode, TimeSource, Timestamp, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{Mode, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 use spin::Mutex;
 
 use crate::fs::ata_block::SosAtaBlockDevice;

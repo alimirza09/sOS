@@ -81,22 +81,6 @@ impl ThreadPool {
         tid
     }
 
-    pub(crate) fn tick(&self, cpu_id: usize, tid: Option<Tid>) -> bool {
-        if cpu_id == 0 {
-            let mut timer = self.timer.lock();
-            timer.tick();
-            while let Some(event) = timer.pop() {
-                match event {
-                    Event::Wakeup(tid) => self.set_status(tid, Status::Ready),
-                }
-            }
-        }
-        match tid {
-            Some(tid) => self.scheduler.tick(tid),
-            None => false,
-        }
-    }
-
     pub fn set_priority(&self, tid: Tid, priority: u8) {
         self.scheduler.set_priority(tid, priority);
     }
