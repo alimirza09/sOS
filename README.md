@@ -1,5 +1,5 @@
 # sOS
-A hobbyOS written in Rust.
+A hobbyOS for 64 bit machines written in Rust.
 
 ## Current Progress
 
