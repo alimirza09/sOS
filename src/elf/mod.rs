@@ -2,7 +2,6 @@ use alloc::vec::Vec;
 use core::mem;
 use x86_64::VirtAddr;
 pub mod loader;
-use loader::*;
 
 pub const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 pub const ELF_CLASS_64: u8 = 2;
