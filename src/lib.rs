@@ -6,6 +6,7 @@ extern crate alloc;
 
 pub mod arch;
 pub mod drivers;
+pub mod elf;
 pub mod fs;
 pub mod memory;
 pub mod sched;
@@ -16,7 +17,7 @@ pub mod task;
 pub use arch::x86_64::{gdt, interrupts, smp, timer};
 pub use drivers::{ata, serial, sshell, vga_buffer};
 pub use memory::{allocator, paging};
-pub use sched::{context, processor, rr, std_thread, thread_pool};
+pub use sched::{context, processor, rr, thread_pool};
 pub use sync::interrupt;
 use x86_64::structures::paging::OffsetPageTable;
 

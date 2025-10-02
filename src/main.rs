@@ -10,6 +10,7 @@ use sos::drivers::vga_buffer::{set_colors, Color};
 use sos::{println, serial_println};
 
 entry_point!(kernel_main);
+
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     set_colors(Color::Green, Color::Black);
     println!("Welcome to sOS!");

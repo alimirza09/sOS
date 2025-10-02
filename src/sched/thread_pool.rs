@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use log::*;
 use spin::{Mutex, MutexGuard};
 
-struct Thread {
+pub struct Thread {
     /// Current status of the thread.
     status: Status,
     /// Next status after the thread stop running.

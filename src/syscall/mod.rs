@@ -12,6 +12,9 @@ pub const SYS_UNLINK: u64 = 4;
 pub const SYS_MKDIR: u64 = 5;
 pub const SYS_RMDIR: u64 = 6;
 pub const SYS_LISTDIR: u64 = 7;
+pub const SYS_EXIT: u64 = 8;
+pub const SYS_BRK: u64 = 9;
+pub const SYS_MMAP: u64 = 10;
 
 pub const SYSCALLS: &[fn(u64, u64, u64) -> u64] = &[
     sys_open,
@@ -22,6 +25,9 @@ pub const SYSCALLS: &[fn(u64, u64, u64) -> u64] = &[
     sys_mkdir,
     sys_rmdir,
     sys_listdir,
+    sys_exit,
+    sys_brk,
+    sys_mmap,
 ];
 
 pub fn syscall_identifier(num: u64, a0: u64, a1: u64, a2: u64) -> u64 {
@@ -44,7 +50,6 @@ pub fn test_syscalls_filesystem_fixed() -> Result<(), &'static str> {
     static READ_BUFFER: Mutex<[u8; 1024]> = Mutex::new([0u8; 1024]);
 
     let fd = syscall_identifier(SYS_OPEN, FILENAME.as_ptr() as u64, 1, 0);
-
     if fd == u64::MAX {
         return Err("failed to open file");
     }
@@ -62,41 +67,38 @@ pub fn test_syscalls_filesystem_fixed() -> Result<(), &'static str> {
     serial_println!("Close returned: {}", close_ret);
 
     let read_fd = syscall_identifier(SYS_OPEN, FILENAME.as_ptr() as u64, 0, 0);
-
     if read_fd == u64::MAX {
         return Err("failed to open file for reading");
     }
     serial_println!("Opened file for reading with fd: {}", read_fd);
 
-    let read_ret = syscall_identifier(
-        SYS_READ,
-        read_fd,
-        READ_BUFFER.lock().as_mut_ptr() as u64,
-        READ_BUFFER.lock().len() as u64,
-    );
-    serial_println!("Read returned: {} bytes", read_ret);
+    {
+        let mut buf = READ_BUFFER.lock();
+        let read_ret =
+            syscall_identifier(SYS_READ, read_fd, buf.as_mut_ptr() as u64, buf.len() as u64);
+        serial_println!("Read returned: {} bytes", read_ret);
 
-    if read_ret != u64::MAX && read_ret > 0 {
-        let bytes_read = read_ret as usize;
-        let read_data = &READ_BUFFER.lock()[..bytes_read];
+        if read_ret != u64::MAX && read_ret > 0 {
+            let bytes_read = read_ret as usize;
+            let read_data = &buf[..bytes_read];
 
-        if read_data == TEST_CONTENT {
-            serial_println!("✓ File content verification passed!");
-        } else {
-            serial_println!("✗ File content verification failed");
-            serial_println!(
-                "Expected: {:?}",
-                core::str::from_utf8(TEST_CONTENT).unwrap()
-            );
-            serial_println!("Got: {:?}", core::str::from_utf8(read_data).unwrap());
-            return Err("content verification failed");
+            if read_data == TEST_CONTENT {
+                serial_println!("✓ File content verification passed!");
+            } else {
+                serial_println!("✗ File content verification failed");
+                serial_println!(
+                    "Expected: {:?}",
+                    core::str::from_utf8(TEST_CONTENT).unwrap()
+                );
+                serial_println!("Got: {:?}", core::str::from_utf8(read_data).unwrap());
+                return Err("content verification failed");
+            }
         }
     }
 
     syscall_identifier(SYS_CLOSE, read_fd, 0, 0);
 
     let unlink_ret = syscall_identifier(SYS_UNLINK, FILENAME.as_ptr() as u64, 0, 0);
-
     if unlink_ret == 0 {
         serial_println!("✓ File deletion successful");
     } else {
@@ -109,4 +111,24 @@ pub fn test_syscalls_filesystem_fixed() -> Result<(), &'static str> {
 
 pub fn test_syscalls() {
     let _ = test_syscalls_filesystem_fixed();
+}
+
+pub fn sys_exit(exit_code: u64, _a1: u64, _a2: u64) -> u64 {
+    crate::serial_println!("Process exit with code: {}", exit_code);
+    exit_code
+}
+
+pub fn sys_brk(addr: u64, _a1: u64, _a2: u64) -> u64 {
+    crate::serial_println!("brk() called with addr: {:#x}", addr);
+    addr
+}
+
+pub fn sys_mmap(addr: u64, length: u64, prot: u64) -> u64 {
+    crate::serial_println!(
+        "mmap() called: addr={:#x}, len={:#x}, prot={:#x}",
+        addr,
+        length,
+        prot
+    );
+    addr
 }
