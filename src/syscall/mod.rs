@@ -1,3 +1,26 @@
+//! # Syscall Table & Handlers
+//!
+//! This module provides the syscall dispatch mechanism for SOS.  
+//!
+//! - Each syscall has a **numeric identifier** (`SYS_*` constants).  
+//! - `SYSCALLS` is a table mapping syscall numbers → handler functions.  
+//! - `syscall_identifier` performs dispatch and logging.  
+//! - Stub implementations exist for `exit`.  
+//!
+//! ## Supported Syscalls
+//!
+//! | Number | Name       | Function        |
+//! |--------|------------|-----------------|
+//! | 0      | `open`     | `sys_open`      |
+//! | 1      | `read`     | `sys_read`      |
+//! | 2      | `write`    | `sys_write`     |
+//! | 3      | `close`    | `sys_close`     |
+//! | 4      | `unlink`   | `sys_unlink`    |
+//! | 5      | `mkdir`    | `sys_mkdir`     |
+//! | 6      | `rmdir`    | `sys_rmdir`     |
+//! | 7      | `listdir`  | `sys_listdir`   |
+//! | 8      | `exit`     | `sys_exit`      |
+
 use crate::fs::syscalls::{
     sys_close, sys_listdir, sys_mkdir, sys_open, sys_read, sys_rmdir, sys_unlink, sys_write,
 };
@@ -12,9 +35,8 @@ pub const SYS_MKDIR: u64 = 5;
 pub const SYS_RMDIR: u64 = 6;
 pub const SYS_LISTDIR: u64 = 7;
 pub const SYS_EXIT: u64 = 8;
-pub const SYS_BRK: u64 = 9;
-pub const SYS_MMAP: u64 = 10;
 
+/// Global syscall dispatch table.  
 pub const SYSCALLS: &[fn(u64, u64, u64) -> u64] = &[
     sys_open,
     sys_read,
@@ -25,10 +47,9 @@ pub const SYSCALLS: &[fn(u64, u64, u64) -> u64] = &[
     sys_rmdir,
     sys_listdir,
     sys_exit,
-    sys_brk,
-    sys_mmap,
 ];
 
+/// Returns the syscall result as `u64`. Unknown syscalls return `u64::MAX`.
 pub fn syscall_identifier(num: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     let idx = num as usize;
     if idx < SYSCALLS.len() {
@@ -48,19 +69,4 @@ pub fn sys_exit(code: u64, _a1: u64, _a2: u64) -> u64 {
 
     // NOTE: TEMPORARY
     crate::hlt_loop();
-}
-
-pub fn sys_brk(addr: u64, _a1: u64, _a2: u64) -> u64 {
-    crate::serial_println!("brk() called with addr: {:#x}", addr);
-    addr
-}
-
-pub fn sys_mmap(addr: u64, length: u64, prot: u64) -> u64 {
-    crate::serial_println!(
-        "mmap() called: addr={:#x}, len={:#x}, prot={:#x}",
-        addr,
-        length,
-        prot
-    );
-    addr
 }

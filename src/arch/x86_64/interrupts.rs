@@ -1,3 +1,26 @@
+//! # Interrupt Handlers
+//!
+//! This module defines and initializes the **Interrupt Descriptor Table (IDT)**
+//! for the SOS kernel. It provides handlers for CPU exceptions, hardware
+//! interrupts (PIC), and system calls.
+//!
+//! ## Installed Handlers
+//!
+//! - **Breakpoint** (`int3`) → prints debug information
+//! - **Page Fault** → logs the faulting address, error code, and halts
+//! - **Double Fault** → panic with stack frame info
+//! - **Timer (IRQ0)** → periodic system timer tick (notifies PIC)
+//! - **Keyboard (IRQ1)** → reads scancode from port `0x60` and pushes to queue
+//! - **ATA Primary (IRQ14)** → handles ATA disk interrupts (primary bus)
+//! - **ATA Secondary (IRQ15)** → handles ATA disk interrupts (secondary bus)
+//! - **Syscall (int 0x80)** → dispatches to syscall handler
+//!
+//! ## Notes
+//! - Uses `x86-interrupt` calling convention for safety.
+//! - Relies on the global PIC (`ChainedPics`) to acknowledge hardware IRQs.
+//! - The syscall handler extracts `rax`, `rdi`, `rsi`, `rdx` into Rust and
+//!   dispatches via `syscall::syscall_identifier`.
+
 use crate::{gdt, hlt_loop, println};
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
