@@ -32,6 +32,68 @@ pub fn mount_root_fs(device: crate::drivers::ata::AtaDevice, block_count: u32) {
     *VOLUME_MANAGER.lock() = Some(manager);
 }
 
+pub fn file_size(path: &str) -> Result<usize, &'static str> {
+    let components = split_path(path);
+
+    if components.len() != 1 {
+        return Err("Only root directory files supported currently");
+    }
+
+    let file_name = components[0];
+
+    let mut guard = VOLUME_MANAGER.lock();
+    let manager = guard.as_mut().ok_or("No volume manager")?;
+    let mut volume = manager
+        .open_volume(VolumeIdx(0))
+        .map_err(|_| "open_volume failed")?;
+
+    let mut root_dir = volume.open_root_dir().map_err(|_| "open_root_dir failed")?;
+    let file = root_dir
+        .open_file_in_dir(file_name, Mode::ReadOnly)
+        .map_err(|_| "open_file failed")?;
+
+    Ok(file.length() as usize)
+}
+
+pub fn read_file_range(path: &str, offset: usize, buf: &mut [u8]) -> Result<usize, &'static str> {
+    let components = split_path(path);
+
+    if components.len() != 1 {
+        return Err("Only root directory files supported currently");
+    }
+
+    let file_name = components[0];
+
+    let mut guard = VOLUME_MANAGER.lock();
+    let manager = guard.as_mut().ok_or("No volume manager")?;
+    let mut volume = manager
+        .open_volume(VolumeIdx(0))
+        .map_err(|_| "open_volume failed")?;
+
+    let mut root_dir = volume.open_root_dir().map_err(|_| "open_root_dir failed")?;
+    let mut file = root_dir
+        .open_file_in_dir(file_name, Mode::ReadOnly)
+        .map_err(|_| "open_file failed")?;
+
+    if offset > 0 {
+        let mut skip_buf = [0u8; 512];
+        let mut skipped = 0;
+        while skipped < offset {
+            let to_skip = core::cmp::min(skip_buf.len(), offset - skipped);
+            let n = file
+                .read(&mut skip_buf[..to_skip])
+                .map_err(|_| "file.read failed")?;
+            if n == 0 {
+                return Ok(0); // EOF
+            }
+            skipped += n;
+        }
+    }
+
+    let n = file.read(buf).map_err(|_| "file.read failed")?;
+    Ok(n)
+}
+
 fn split_path(path: &str) -> Vec<&str> {
     path.split('/').filter(|p| !p.is_empty()).collect()
 }
@@ -259,7 +321,7 @@ pub fn test_fat32() {
             println!("FAT32 test:  File still exists after deletion");
         }
         Err(_) => {
-            println!("FAT32 test:  File successfully deleted (read failed as expected)");
+            println!("FAT32 test:  File successfully deleted ");
         }
     }
 

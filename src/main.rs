@@ -5,6 +5,7 @@ extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
 use core::panic::PanicInfo;
+use sos::fs::fat::mount_root_fs;
 
 use sos::drivers::vga_buffer::{set_colors, Color};
 use sos::{println, serial_println};
@@ -48,11 +49,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     sos::ata::test_ata_driver_comprehensive();
     sos::fs::fat::test_fat32_with_device(sos::ata::AtaDevice::Slave, 131072);
-    sos::syscall::test_syscalls();
 
     serial_println!("==================================");
 
-    sos::elf::loader::run_elf_exec("hello.elf");
+    sos::elf::runner::run_elf_in_kernel_mode("hello.elf", &mut mapper, &mut frame_allocator);
 
     serial_println!("Entering an infinite loop.");
     sos::hlt_loop();

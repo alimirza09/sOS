@@ -1,7 +1,11 @@
 use crate::fs::fat;
 use alloc::string::String;
 use core::ptr;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex;
+
+static FILE_OFFSET: AtomicUsize = AtomicUsize::new(0);
+static FILE_SIZE: AtomicUsize = AtomicUsize::new(0);
 
 lazy_static::lazy_static! {
     static ref LAST_FILENAME: Mutex<Option<String>> = Mutex::new(None);
@@ -24,7 +28,13 @@ pub unsafe fn copy_in_cstr(ptr: u64) -> String {
 
 pub fn sys_open(filename_ptr: u64, write_flag: u64, _unused: u64) -> u64 {
     let filename = unsafe { copy_in_cstr(filename_ptr) };
-    *LAST_FILENAME.lock() = Some(filename);
+    *LAST_FILENAME.lock() = Some(filename.clone());
+
+    if let Ok(size) = fat::file_size(&filename) {
+        FILE_OFFSET.store(0, Ordering::SeqCst);
+        FILE_SIZE.store(size, Ordering::SeqCst);
+    }
+
     if write_flag != 0 {
         0
     } else {
@@ -34,25 +44,66 @@ pub fn sys_open(filename_ptr: u64, write_flag: u64, _unused: u64) -> u64 {
 
 pub fn sys_read(_fd: u64, buf_ptr: u64, count: u64) -> u64 {
     let filename = LAST_FILENAME.lock().clone().unwrap_or_default();
-    let mut temp_buf = alloc::vec::Vec::with_capacity(count as usize);
-    temp_buf.resize(count as usize, 0);
-    match fat::read_file(&filename, &mut temp_buf[..]) {
+
+    let offset = FILE_OFFSET.load(Ordering::SeqCst);
+    let size = FILE_SIZE.load(Ordering::SeqCst);
+
+    if offset >= size {
+        return 0;
+    }
+
+    let to_read = core::cmp::min(count as usize, size - offset);
+
+    let mut temp_buf = alloc::vec::Vec::with_capacity(to_read);
+    temp_buf.resize(to_read, 0);
+
+    match fat::read_file_range(&filename, offset, &mut temp_buf[..]) {
         Ok(n) => {
             unsafe {
                 ptr::copy_nonoverlapping(temp_buf.as_ptr(), buf_ptr as *mut u8, n);
             }
+            FILE_OFFSET.store(offset + n, Ordering::SeqCst);
             n as u64
         }
         Err(_) => u64::MAX,
     }
 }
 
-pub fn sys_write(_fd: u64, buf_ptr: u64, count: u64) -> u64 {
-    let filename = LAST_FILENAME.lock().clone().unwrap_or_default();
-    let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, count as usize) };
-    match fat::write_file(&filename, buf) {
-        Ok(()) => count,
-        Err(_) => u64::MAX,
+use crate::{serial_println, vga_buffer::WRITER};
+use core::str;
+
+/// sys_write(fd, buf, count)
+pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
+    let len = count as usize;
+
+    // Debug log to serial so you see every call
+    serial_println!("sys_write(fd={}, buf={:#x}, len={})", fd, buf_ptr, len);
+
+    // Safety: we’re in kernel space with identity map
+    let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
+
+    match fd {
+        1 => {
+            // stdout → VGA
+            let mut writer = WRITER.lock();
+            for &b in buf {
+                writer.write_byte(b);
+            }
+            count
+        }
+        2 => {
+            // stderr → serial
+            if let Ok(s) = str::from_utf8(buf) {
+                serial_println!("{}", s);
+            } else {
+                serial_println!("stderr non-utf8: {:02x?}", buf);
+            }
+            count
+        }
+        _ => {
+            serial_println!("sys_write: unsupported fd {}", fd);
+            0
+        }
     }
 }
 
