@@ -451,8 +451,6 @@ impl VirtioGpu {
         static mut DMA_OFFSET: u64 = 0;
 
         unsafe {
-            // For small buffers (like VirtIO commands), allocate single page
-            // For large buffers (like framebuffer), we'll handle them specially
             if size <= 4096 {
                 let virt_addr = VirtAddr::new(DMA_BASE + DMA_OFFSET);
                 let flags =
@@ -501,7 +499,6 @@ impl VirtioGpu {
                 self.dma_buffers.push(buffer);
                 Ok(())
             } else {
-                // For large buffers, allocate multiple pages
                 let pages_needed = (size + 4095) / 4096;
                 let total_size = pages_needed * 4096;
 
@@ -509,7 +506,6 @@ impl VirtioGpu {
                 let flags =
                     PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
 
-                // Allocate and map all pages
                 let mut frames = Vec::new();
                 let mut current_virt_addr = virt_addr;
 
@@ -528,7 +524,6 @@ impl VirtioGpu {
                     current_virt_addr = VirtAddr::new(current_virt_addr.as_u64() + 4096);
                 }
 
-                // Use the physical address of the first frame
                 let phys_addr = frames[0].start_address().as_u64();
 
                 let buffer = DmaBuffer {
@@ -537,7 +532,6 @@ impl VirtioGpu {
                     size: total_size,
                 };
 
-                // Clear the buffer
                 core::ptr::write_bytes(buffer.virt, 0, buffer.size);
                 self.dma_buffers.push(buffer);
 
@@ -875,7 +869,7 @@ impl VirtioGpu {
 
             (*self.controlq.desc.add(desc_idx as usize)).addr = cmd_phys;
             (*self.controlq.desc.add(desc_idx as usize)).len = cmd_len;
-            (*self.controlq.desc.add(desc_idx as usize)).flags = 1; // VIRTQ_DESC_F_NEXT
+            (*self.controlq.desc.add(desc_idx as usize)).flags = 1;
             (*self.controlq.desc.add(desc_idx as usize)).next = (desc_idx + 1) % QUEUE_SIZE;
 
             let resp_idx = (desc_idx + 1) % QUEUE_SIZE;
@@ -885,24 +879,20 @@ impl VirtioGpu {
 
             (*self.controlq.desc.add(resp_idx as usize)).addr = resp_phys;
             (*self.controlq.desc.add(resp_idx as usize)).len = resp_len;
-            (*self.controlq.desc.add(resp_idx as usize)).flags = 2; // VIRTQ_DESC_F_WRITE
+            (*self.controlq.desc.add(resp_idx as usize)).flags = 2;
             (*self.controlq.desc.add(resp_idx as usize)).next = 0;
 
-            // Memory barrier before updating available ring
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
             let avail_idx = (*self.controlq.avail).idx;
             (*self.controlq.avail).ring[avail_idx as usize] = desc_idx;
 
-            // Memory barrier before notifying device
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
             (*self.controlq.avail).idx = avail_idx.wrapping_add(1);
 
-            // Notify the device
             write_volatile(self.notify_base as *mut u16, 0);
 
-            // Wait for response
             let start_used = self.controlq.used_idx;
             let mut timeout = 1000000;
             while (*self.controlq.used).idx == start_used && timeout > 0 {
@@ -917,8 +907,6 @@ impl VirtioGpu {
 
             self.controlq.used_idx = self.controlq.used_idx.wrapping_add(1);
 
-            // Find the response buffer by searching through DMA buffers
-            // Don't read directly from physical address!
             let mut resp_virt: *const VirtioGpuCtrlHdr = core::ptr::null();
             for buffer in &self.dma_buffers {
                 if buffer.phys == resp_phys {
@@ -932,7 +920,6 @@ impl VirtioGpu {
                 return Err("Response buffer not found");
             }
 
-            // Check what the device actually returned
             let used_elem =
                 &(*self.controlq.used).ring[((*self.controlq.used).idx.wrapping_sub(1)) as usize];
             serial_println!("Used element: id={}, len={}", used_elem.id, used_elem.len);
@@ -1092,8 +1079,5 @@ impl VirtioGpu {
                 *self.framebuffer.add(i as usize) = 0xFFFFFFFF;
             }
         }
-
-        serial_println!("Debug refresh complete - screen should be white");
-        serial_println!("Note: Call refresh_display with mapper and frame_allocator to actually update the display");
     }
 }
