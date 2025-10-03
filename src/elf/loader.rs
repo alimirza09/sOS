@@ -1,7 +1,4 @@
-use crate::{
-    elf::ElfFile,
-    syscall::{self, SYS_CLOSE, SYS_OPEN, SYS_READ},
-};
+use crate::syscall::{self, SYS_CLOSE, SYS_OPEN, SYS_READ};
 
 use alloc::vec::Vec;
 
@@ -43,37 +40,4 @@ pub fn extract_elf_exec(file: &str) -> Option<Vec<u8>> {
     let _ = syscall::syscall_identifier(SYS_CLOSE, fd as u64, 0, 0);
 
     Some(out)
-}
-
-pub fn run_elf_exec(file: &str) {
-    let contents = match extract_elf_exec(file) {
-        Some(data) => data,
-        None => {
-            crate::serial_println!("Failed to read ELF file: {}", file);
-            return;
-        }
-    };
-
-    match ElfFile::from_data(contents) {
-        Ok(elf) => {
-            crate::serial_println!("ELF parsed successfully!");
-            crate::serial_println!("Entry point: {:?}", elf.entry_point());
-
-            for ph in elf.loadable_segments() {
-                crate::serial_println!(
-                    "Loadable segment: vaddr={:#x}, filesz={}, memsz={}, flags={:#x}",
-                    ph.p_vaddr,
-                    ph.p_filesz,
-                    ph.p_memsz,
-                    ph.p_flags
-                );
-                // TODO: map pages + copy data into memory here
-            }
-
-            // TODO: jump to elf.entry_point() to execute
-        }
-        Err(err) => {
-            crate::serial_println!("ELF parsing failed: {}", err);
-        }
-    }
 }

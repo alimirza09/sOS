@@ -29,6 +29,11 @@ test = false
 doctest = false
 bench = false
 
+[lib]
+test = false
+doctest = false
+bench = false
+
 [dependencies.crossbeam-queue]
 version = "0.3.11"
 default-features = false

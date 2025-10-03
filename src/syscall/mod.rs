@@ -2,7 +2,6 @@ use crate::fs::syscalls::{
     sys_close, sys_listdir, sys_mkdir, sys_open, sys_read, sys_rmdir, sys_unlink, sys_write,
 };
 use crate::serial_println;
-use spin::Mutex;
 
 pub const SYS_OPEN: u64 = 0;
 pub const SYS_READ: u64 = 1;

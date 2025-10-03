@@ -5,7 +5,6 @@ extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
 use core::panic::PanicInfo;
-use sos::fs::fat::mount_root_fs;
 
 use sos::drivers::vga_buffer::{set_colors, Color};
 use sos::{println, serial_println};

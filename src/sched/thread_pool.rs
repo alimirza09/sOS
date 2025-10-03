@@ -107,13 +107,6 @@ impl ThreadPool {
         }
     }
 
-    pub(crate) fn wait(&self, tid: Tid, target: Tid) {
-        self.set_status(tid, Status::Sleeping);
-        let mut target_lock = self.threads[target].lock();
-        let target = target_lock.as_mut().expect("thread not exist");
-        target.waiter = Some(tid);
-    }
-
     fn set_status(&self, tid: Tid, status: Status) {
         let mut proc_lock = self.threads[tid].lock();
         if let Some(proc) = proc_lock.as_mut() {
