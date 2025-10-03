@@ -1,9 +1,6 @@
-use crate::elf::loader::extract_elf_exec;
 use core::ptr;
-use x86_64::structures::paging::Mapper;
-use x86_64::structures::paging::OffsetPageTable;
-use x86_64::structures::paging::PageSize;
 use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags, Size4KiB};
+use x86_64::structures::paging::{Mapper, OffsetPageTable, PageSize};
 use x86_64::VirtAddr;
 
 use crate::elf::ElfFile;
@@ -64,7 +61,7 @@ pub fn run_elf_in_kernel_mode(
     mapper: &mut OffsetPageTable,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
 ) {
-    let contents = match extract_elf_exec(file) {
+    let contents = match crate::elf::loader::extract_elf_exec(file) {
         Some(c) => c,
         None => {
             crate::serial_println!("Failed to read ELF file: {}", file);
@@ -148,7 +145,6 @@ pub fn run_elf_in_kernel_mode(
         stack_top.as_u64()
     );
 
-    // print first 32 bytes at entry offset relative to ELF base (entry - base_vaddr)
     let entry = elf.entry_point().as_u64() as usize;
     let base_vaddr = elf
         .loadable_segments()
