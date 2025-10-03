@@ -72,19 +72,15 @@ pub fn sys_read(_fd: u64, buf_ptr: u64, count: u64) -> u64 {
 use crate::{serial_println, vga_buffer::WRITER};
 use core::str;
 
-/// sys_write(fd, buf, count)
 pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
     let len = count as usize;
 
-    // Debug log to serial so you see every call
     serial_println!("sys_write(fd={}, buf={:#x}, len={})", fd, buf_ptr, len);
 
-    // Safety: we’re in kernel space with identity map
     let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
 
     match fd {
         1 => {
-            // stdout → VGA
             let mut writer = WRITER.lock();
             for &b in buf {
                 writer.write_byte(b);
@@ -92,7 +88,6 @@ pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
             count
         }
         2 => {
-            // stderr → serial
             if let Ok(s) = str::from_utf8(buf) {
                 serial_println!("{}", s);
             } else {
