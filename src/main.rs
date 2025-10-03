@@ -5,6 +5,7 @@ extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
 use core::panic::PanicInfo;
+use sos::ata::AtaDevice;
 
 use sos::drivers::vga_buffer::{set_colors, Color};
 use sos::{println, serial_println};
@@ -46,8 +47,32 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     }
     serial_println!("==================================");
 
-    sos::ata::test_ata_driver_comprehensive();
-    sos::fs::fat::test_fat32_with_device(sos::ata::AtaDevice::Slave, 131072);
+    let drive_info = match sos::ata::identify_drive(true, AtaDevice::Slave) {
+        Ok(info) => {
+            crate::serial_println!("Primary Slave found:");
+            crate::serial_println!("  Model: {}", info.model);
+            crate::serial_println!("  Serial: {}", info.serial);
+            crate::serial_println!("  Firmware: {}", info.firmware);
+            crate::serial_println!("  Sectors: {}", info.sectors);
+            crate::serial_println!(
+                "  Capacity: {} MB ({} GB)",
+                info.capacity_mb(),
+                info.capacity_gb()
+            );
+            crate::serial_println!("  LBA48 Support: {}", info.supports_lba48);
+            crate::serial_println!("  Sector Size: {} bytes", info.sector_size);
+            Some(info)
+        }
+        Err(e) => {
+            crate::serial_println!("Primary Slave error: {:?}", e);
+            None
+        }
+    };
+
+    sos::fs::fat::mount_root_fs(
+        sos::ata::AtaDevice::Slave,
+        drive_info.unwrap().sectors as u32,
+    );
 
     serial_println!("==================================");
 

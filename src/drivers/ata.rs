@@ -503,8 +503,8 @@ impl DriveInfo {
         (self.sectors * self.sector_size as u64) / (1024 * 1024)
     }
 
-    pub fn capacity_gb(&self) -> u64 {
-        self.capacity_mb() / 1024
+    pub fn capacity_gb(&self) -> f32 {
+        self.capacity_mb() as f32 / 1024.0
     }
 }
 
