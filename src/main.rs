@@ -101,7 +101,7 @@ fn panic(info: &PanicInfo) -> ! {
     let message = info.message();
     serial_println!("Panic message: {}", message);
 
-    serial_println!("System halted due to panic - entering infinite loop");
+    serial_println!("System halted due to panic, entering infinite loop");
 
     sos::hlt_loop();
 }

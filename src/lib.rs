@@ -38,6 +38,7 @@ pub fn init(boot_info: &'static BootInfo) -> (BootInfoFrameAllocator, OffsetPage
     unsafe { arch::x86_64::interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
     memory::syscalls::init_brk(allocator::HEAP_START as u64);
+    enable_fpu_and_sse();
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
@@ -45,4 +46,26 @@ pub fn init(boot_info: &'static BootInfo) -> (BootInfoFrameAllocator, OffsetPage
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialization failed");
 
     (frame_allocator, mapper)
+}
+
+use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags};
+
+pub fn enable_fpu_and_sse() {
+    let mut cr0 = Cr0::read();
+    cr0.remove(Cr0Flags::EMULATE_COPROCESSOR);
+    cr0.remove(Cr0Flags::TASK_SWITCHED);
+    unsafe { Cr0::write(cr0) };
+
+    let mut cr4 = Cr4::read();
+    cr4.insert(Cr4Flags::OSFXSR);
+    cr4.insert(Cr4Flags::OSXMMEXCPT_ENABLE);
+    unsafe { Cr4::write(cr4) };
+
+    unsafe {
+        core::arch::asm!("fninit", options(nostack, nomem));
+    }
+
+    unsafe {
+        core::arch::asm!("pxor xmm0, xmm0", options(nostack, nomem));
+    }
 }
