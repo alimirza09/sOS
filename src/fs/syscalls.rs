@@ -1,4 +1,5 @@
 use crate::fs::fat;
+use crate::println;
 use alloc::string::String;
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -30,15 +31,63 @@ pub fn sys_open(filename_ptr: u64, write_flag: u64, _unused: u64) -> u64 {
     let filename = unsafe { copy_in_cstr(filename_ptr) };
     *LAST_FILENAME.lock() = Some(filename.clone());
 
-    if let Ok(size) = fat::file_size(&filename) {
-        FILE_OFFSET.store(0, Ordering::SeqCst);
-        FILE_SIZE.store(size, Ordering::SeqCst);
-    }
-
     if write_flag != 0 {
-        0
+        FILE_OFFSET.store(0, Ordering::SeqCst);
+        FILE_SIZE.store(0, Ordering::SeqCst);
+        3
     } else {
-        1
+        if let Ok(size) = fat::file_size(&filename) {
+            FILE_OFFSET.store(0, Ordering::SeqCst);
+            FILE_SIZE.store(size, Ordering::SeqCst);
+            3
+        } else {
+            u64::MAX
+        }
+    }
+}
+
+pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
+    let len = count as usize;
+
+    serial_println!("sys_write(fd={}, buf={:#x}, len={})", fd, buf_ptr, len);
+
+    let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
+
+    match fd {
+        1 => {
+            unsafe {
+                println!("{}", alloc::str::from_utf8_unchecked(buf));
+            }
+            count
+        }
+        2 => {
+            if let Ok(s) = str::from_utf8(buf) {
+                serial_println!("{}", s);
+            } else {
+                serial_println!("stderr non-utf8: {:02x?}", buf);
+            }
+            count
+        }
+        _ => {
+            let filename = LAST_FILENAME.lock().clone().unwrap_or_default();
+            if filename.is_empty() {
+                serial_println!("sys_write: no filename set");
+                return u64::MAX;
+            }
+
+            serial_println!("Writing {} bytes to file: {}", len, filename);
+
+            match fat::write_file(&filename, buf) {
+                Ok(()) => {
+                    serial_println!("File write successful");
+                    count
+                }
+                Err(e) => {
+                    serial_println!("File write failed: {:?}", e);
+                    u64::MAX
+                }
+            }
+        }
     }
 }
 
@@ -69,38 +118,8 @@ pub fn sys_read(_fd: u64, buf_ptr: u64, count: u64) -> u64 {
     }
 }
 
-use crate::{serial_println, vga_buffer::WRITER};
+use crate::serial_println;
 use core::str;
-
-pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
-    let len = count as usize;
-
-    serial_println!("sys_write(fd={}, buf={:#x}, len={})", fd, buf_ptr, len);
-
-    let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
-
-    match fd {
-        1 => {
-            let mut writer = WRITER.lock();
-            for &b in buf {
-                writer.write_byte(b);
-            }
-            count
-        }
-        2 => {
-            if let Ok(s) = str::from_utf8(buf) {
-                serial_println!("{}", s);
-            } else {
-                serial_println!("stderr non-utf8: {:02x?}", buf);
-            }
-            count
-        }
-        _ => {
-            serial_println!("sys_write: unsupported fd {}", fd);
-            0
-        }
-    }
-}
 
 pub fn sys_close(_fd: u64, _a1: u64, _a2: u64) -> u64 {
     0
