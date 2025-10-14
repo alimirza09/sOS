@@ -73,6 +73,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         sos::ata::AtaDevice::Slave,
         drive_info.unwrap().sectors as u32,
     );
+    if let Ok(some) = sos::fs::fat::list_dir("") {
+        serial_println!("{:?}", some);
+    }
 
     serial_println!("==================================");
 

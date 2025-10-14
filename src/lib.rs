@@ -37,6 +37,7 @@ pub fn init(boot_info: &'static BootInfo) -> (BootInfoFrameAllocator, OffsetPage
     arch::x86_64::interrupts::init_idt();
     unsafe { arch::x86_64::interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
+    memory::syscalls::init_brk(allocator::HEAP_START as u64);
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
