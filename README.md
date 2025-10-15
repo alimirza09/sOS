@@ -1,4 +1,5 @@
 # sOS
+
 A hobbyOS for 64 bit machines written in Rust.
 
 ## Current Progress
@@ -10,9 +11,9 @@ A hobbyOS for 64 bit machines written in Rust.
 - A Virtio-gpu driver for qemu
 - Full Paging Support
 - Full 64 bit support
-
+- Some basic syscalls
 
 ## License
 
-This project is licensed under the GNU General Public License v3 (GPL-3.0-or-later).  
+This project is licensed under the GNU General Public License v3 (GPL-3.0-or-later).
 See the [LICENSE](LICENSE) file for details or visit <https://www.gnu.org/licenses/gpl.html>
