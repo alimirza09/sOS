@@ -25,13 +25,12 @@ impl FdTable {
     }
 
     fn alloc_fd(&mut self, file: OpenFile) -> Option<usize> {
-        for (i, slot) in self.files.iter_mut().enumerate() {
+        for (i, slot) in self.files.iter_mut().enumerate().skip(3) {
             if slot.is_none() {
                 *slot = Some(file);
                 return Some(i);
             }
         }
-
         self.files.push(Some(file));
         Some(self.files.len() - 1)
     }
@@ -63,10 +62,24 @@ lazy_static::lazy_static! {
     static ref FD_TABLE: Mutex<FdTable> = Mutex::new(FdTable::new());
 }
 
+//    pub unsafe fn copy_in_cstr(ptr: u64) -> String {
+//        let mut buf = alloc::vec::Vec::new();
+//        let mut p = ptr as *const u8;
+//        loop {
+//            let c = ptr::read(p);
+//            if c == 0 {
+//                break;
+//            }
+//            buf.push(c);
+//            p = p.add(1);
+//        }
+//        String::from_utf8(buf).unwrap_or_default()
+//    }
+
 pub unsafe fn copy_in_cstr(ptr: u64) -> String {
-    let mut buf = alloc::vec::Vec::new();
+    let mut buf = Vec::new();
     let mut p = ptr as *const u8;
-    loop {
+    for _ in 0..256 {
         let c = ptr::read(p);
         if c == 0 {
             break;
@@ -74,11 +87,17 @@ pub unsafe fn copy_in_cstr(ptr: u64) -> String {
         buf.push(c);
         p = p.add(1);
     }
-    String::from_utf8(buf).unwrap_or_default()
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
 pub fn sys_open(filename_ptr: u64, flags: u64, _mode: u64) -> u64 {
+    serial_println!(
+        "sys_open: filename_ptr={:#x}, flags={}",
+        filename_ptr,
+        flags
+    );
     let filename = unsafe { copy_in_cstr(filename_ptr) };
+    serial_println!("sys_open: filename='{}'", filename);
 
     let writable = flags & 1 != 0;
     let readable = flags == 0 || flags & 2 != 0;
@@ -104,7 +123,10 @@ pub fn sys_open(filename_ptr: u64, flags: u64, _mode: u64) -> u64 {
 
     let mut table = FD_TABLE.lock();
     match table.alloc_fd(file) {
-        Some(fd) => fd as u64,
+        Some(fd) => {
+            serial_println!("sys_open: Allocated fd: {}", fd);
+            fd as u64
+        }
         None => u64::MAX,
     }
 }
@@ -154,8 +176,13 @@ use core::str;
 pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
     let len = count as usize;
     let buf = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
+    serial_println!("sys_write being executed");
 
     match fd {
+        0 => {
+            serial_println!("stdin???");
+            count
+        }
         1 => {
             unsafe {
                 println!("{}", alloc::str::from_utf8_unchecked(buf));
@@ -173,6 +200,8 @@ pub fn sys_write(fd: u64, buf_ptr: u64, count: u64) -> u64 {
         _ => {
             let fd = fd as usize;
             let table = FD_TABLE.lock();
+
+            serial_println!("sys_write default case being executed");
 
             let file = match table.get(fd) {
                 Some(f) => f,

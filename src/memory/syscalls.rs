@@ -6,7 +6,6 @@ static MMAP_ALLOCATIONS: Mutex<BTreeMap<u64, (usize, Layout)>> = Mutex::new(BTre
 
 pub fn sys_mmap(addr: u64, length: u64, prot: u64) -> u64 {
     use crate::serial_println;
-
     serial_println!(
         "mmap: addr={:#x}, len={:#x}, prot={:#x}",
         addr,
@@ -20,7 +19,10 @@ pub fn sys_mmap(addr: u64, length: u64, prot: u64) -> u64 {
 
     let layout = match Layout::from_size_align(length as usize, 4096) {
         Ok(l) => l,
-        Err(_) => return u64::MAX,
+        Err(_) => {
+            serial_println!("mmap: invalid layout");
+            return u64::MAX;
+        }
     };
 
     let ptr = unsafe { alloc(layout) };
@@ -67,15 +69,16 @@ pub fn sys_munmap(addr: u64, length: u64, _unused: u64) -> u64 {
     }
 }
 
-static CURRENT_BRK: Mutex<u64> = Mutex::new(0);
+static CURRENT_BRK: Mutex<u64> = Mutex::new(0x4444_4444_0000);
 
 pub fn init_brk(initial_brk: u64) {
     *CURRENT_BRK.lock() = initial_brk;
 }
 
-pub fn sys_brk(addr: u64, _unused1: u64, _unused2: u64) -> u64 {
-    use crate::serial_println;
+const HEAP_BASE: u64 = 0x4444_4444_0000;
 
+pub fn sys_brk(addr: u64, _1: u64, _2: u64) -> u64 {
+    use crate::serial_println;
     let mut current_brk = CURRENT_BRK.lock();
 
     if addr == 0 {
@@ -83,25 +86,24 @@ pub fn sys_brk(addr: u64, _unused1: u64, _unused2: u64) -> u64 {
         return *current_brk;
     }
 
-    let old_brk = *current_brk;
-    let new_brk = addr;
-
-    serial_println!("brk: old={:#x}, new={:#x}", old_brk, new_brk);
-
-    if new_brk > old_brk {
-        let size = (new_brk - old_brk) as usize;
-
-        let result = sys_mmap(0, size as u64, 3);
-        if result == u64::MAX {
-            return old_brk;
+    let requested = if addr < HEAP_BASE {
+        match HEAP_BASE.checked_add(addr) {
+            Some(val) => val,
+            None => {
+                serial_println!("brk: invalid requested address (overflow)");
+                return u64::MAX;
+            }
         }
-
-        *current_brk = new_brk;
-        new_brk
-    } else if new_brk < old_brk {
-        *current_brk = new_brk;
-        new_brk
     } else {
-        old_brk
-    }
+        addr
+    };
+
+    serial_println!(
+        "brk: requested={:#x}, current={:#x}",
+        requested,
+        *current_brk
+    );
+
+    *current_brk = requested.max(*current_brk);
+    *current_brk
 }
