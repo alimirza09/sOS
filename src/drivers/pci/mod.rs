@@ -341,20 +341,3 @@ fn pci_write_config(bus: u8, slot: u8, func: u8, offset: u8, value: u32) {
         outl(0xCFC, value);
     }
 }
-
-pub fn test_pci() {
-    serial_println!("=== PCI Device Scan ===");
-    let devices = scan_pci();
-
-    for dev in &devices {
-        dev.print_info();
-        serial_println!("");
-    }
-
-    serial_println!("Looking for VirtIO-GPU...");
-    if let Some(_gpu) = find_virtio_gpu() {
-        serial_println!("VirtIO-GPU found and details printed above");
-    } else {
-        serial_println!("No VirtIO-GPU device found");
-    }
-}

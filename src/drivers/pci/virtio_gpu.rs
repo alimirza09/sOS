@@ -399,7 +399,6 @@ impl VirtioGpu {
             self.fb_phys
         );
 
-        self.draw_test_pattern();
         Ok(())
     }
 
@@ -941,36 +940,6 @@ impl VirtioGpu {
         Ok(())
     }
 
-    fn draw_test_pattern(&mut self) {
-        if self.framebuffer.is_null() {
-            return;
-        }
-
-        unsafe {
-            for y in 0..self.height {
-                for x in 0..self.width {
-                    let color = match (x / 128, y / 128) {
-                        (0, 0) => 0xff0000ff,
-                        (1, 0) => 0xff00ff00,
-                        (2, 0) => 0xffff0000,
-                        (3, 0) => 0xffffff00,
-                        (0, 1) => 0xffff00ff,
-                        (1, 1) => 0xff00ffff,
-                        (2, 1) => 0xffffffff,
-                        (3, 1) => 0xff808080,
-                        _ => {
-                            0xff000000
-                                | ((x * 255 / self.width) << 16)
-                                | ((y * 255 / self.height) << 8)
-                        }
-                    };
-                    *self.framebuffer.add((y * self.width + x) as usize) = color;
-                }
-            }
-        }
-        serial_println!("Test pattern drawn to framebuffer");
-    }
-
     fn map_mmio(
         &self,
         phys_addr: u64,
@@ -1062,7 +1031,7 @@ impl VirtioGpu {
     }
 
     pub fn debug_and_refresh(&mut self) {
-        serial_println!("Debug: Checking framebuffer contents...");
+        serial_println!("Debug: Checking framebuffer contents");
 
         unsafe {
             let first_pixel = *self.framebuffer;

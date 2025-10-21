@@ -8,7 +8,7 @@ use core::panic::PanicInfo;
 use sos::ata::AtaDevice;
 
 use sos::drivers::vga_buffer::{set_colors, Color};
-use sos::{println, serial_println};
+use sos::{graphics, println, serial_println};
 
 entry_point!(kernel_main);
 
@@ -26,17 +26,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         match gpu.init(&mut mapper, &mut frame_allocator) {
             Ok(()) => {
                 serial_println!("VirtIO-GPU initialized.");
-
-                let (fb_ptr, width, height) = gpu.get_framebuffer();
-                serial_println!("Framebuffer ready: {}x{} at {:p}", width, height, fb_ptr);
-
-                match gpu.refresh_display(&mut mapper, &mut frame_allocator) {
-                    Ok(()) => {
-                        serial_println!("Display refreshed")
-                    }
-                    Err(e) => serial_println!("Failed to refresh display: {}", e),
-                }
-                gpu.debug_and_refresh();
+                graphics::test_sight(&mut gpu, &mut mapper, &mut frame_allocator);
             }
             Err(e) => {
                 serial_println!("Failed to initialize VirtIO-GPU: {}", e);
@@ -78,8 +68,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     }
 
     serial_println!("==================================");
-
-    sos::elf::runner::run_elf_in_kernel_mode("hello.elf", &mut mapper, &mut frame_allocator);
 
     serial_println!("Entering an infinite loop.");
     sos::hlt_loop();

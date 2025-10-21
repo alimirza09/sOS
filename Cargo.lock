@@ -157,6 +157,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
+
+[[package]]
 name = "linked_list_allocator"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -236,6 +242,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
+name = "sight"
+version = "0.1.0"
+source = "git+https://github.com/alimirza09/sight#a5d73e4990a56657cb253c0b9759b8f7d1959281"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "sos"
 version = "0.1.0"
 dependencies = [
@@ -249,6 +263,7 @@ dependencies = [
  "log",
  "pc-keyboard",
  "pic8259",
+ "sight",
  "spin 0.5.2",
  "uart_16550",
  "vcell",

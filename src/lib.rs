@@ -8,6 +8,7 @@ pub mod arch;
 pub mod drivers;
 pub mod elf;
 pub mod fs;
+pub mod graphics;
 pub mod memory;
 pub mod sched;
 pub mod sync;
