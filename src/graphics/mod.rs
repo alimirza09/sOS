@@ -54,10 +54,27 @@ pub fn test_sight<'a, FA: FrameAllocator<Size4KiB>>(
     mapper: &'a mut OffsetPageTable<'a>,
     frame_allocator: &'a mut FA,
 ) {
+    use sight::Rect;
     let fb = VirtioFramebuffer::new(gpu, mapper, frame_allocator);
     let mut ctx = Sight::new(fb);
 
     ctx.clear(Color::BLACK);
-    ctx.draw_line(Point::new(0, 0), Point::new(1023, 767), Color::RED);
+
+    ctx.draw_circle(Point::new(200, 200), 80, Color::RED);
+    ctx.draw_rect(Rect::new(400, 150, 150, 100), Color::BLUE);
+    ctx.draw_rounded_rect(Rect::new(600, 150, 150, 120), 20, Color::GREEN);
+
+    ctx.draw_triangle(
+        Point::new(100, 500),
+        Point::new(250, 400),
+        Point::new(200, 550),
+        Color::YELLOW,
+    );
+
+    ctx.draw_line(Point::new(50, 50), Point::new(300, 350), Color::WHITE);
+    ctx.draw_line(Point::new(800, 50), Point::new(950, 300), Color::CYAN);
+
+    ctx.fill_gradient_h(Rect::new(0, 650, 1024, 117), Color::PURPLE, Color::CYAN);
+
     ctx.present().unwrap();
 }

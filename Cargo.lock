@@ -244,7 +244,6 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 [[package]]
 name = "sight"
 version = "0.1.0"
-source = "git+https://github.com/alimirza09/sight#a5d73e4990a56657cb253c0b9759b8f7d1959281"
 dependencies = [
  "libm",
 ]

@@ -373,26 +373,75 @@ impl VirtioGpu {
             Ok(())
         }
     }
-
     fn setup_framebuffer(
         &mut self,
         mapper: &mut OffsetPageTable,
         frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     ) -> Result<(), &'static str> {
         let fb_size = (self.width * self.height * 4) as usize;
-        let pages = (fb_size + 4095) / 4096;
-
-        let fb_buf_idx = {
-            self.alloc_dma_buffer(pages * 4096, mapper, frame_allocator)?;
-            self.dma_buffers.len() - 1
-        };
-
-        let fb_buf = &self.dma_buffers[fb_buf_idx];
-        self.framebuffer = fb_buf.virt as *mut u32;
-        self.fb_phys = fb_buf.phys;
+        let pages_needed = (fb_size + 4095) / 4096;
 
         serial_println!(
-            "Framebuffer: {}x{} at virt={:p} phys=0x{:x}",
+            "Allocating framebuffer: {} pages ({} bytes)",
+            pages_needed,
+            fb_size
+        );
+
+        let mut frames = Vec::new();
+        let first_frame = frame_allocator
+            .allocate_frame()
+            .ok_or("No frame for framebuffer")?;
+        frames.push(first_frame);
+
+        for i in 1..pages_needed {
+            let frame = frame_allocator
+                .allocate_frame()
+                .ok_or("Not enough frames for framebuffer")?;
+
+            let expected_addr = first_frame.start_address().as_u64() + (i * 4096) as u64;
+            let actual_addr = frame.start_address().as_u64();
+
+            if actual_addr != expected_addr {
+                serial_println!(
+                    "WARNING: Frame {} not contiguous! Expected 0x{:x}, got 0x{:x}",
+                    i,
+                    expected_addr,
+                    actual_addr
+                );
+            }
+
+            frames.push(frame);
+        }
+
+        const DMA_BASE: u64 = 0xFFFF_A000_0000_0000;
+        static mut FB_OFFSET: u64 = 0x1000000;
+
+        unsafe {
+            let virt_addr = VirtAddr::new(DMA_BASE + FB_OFFSET);
+            let flags =
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+
+            let mut current_virt = virt_addr;
+            for frame in &frames {
+                let page = Page::containing_address(current_virt);
+                mapper
+                    .map_to(page, *frame, flags, frame_allocator)
+                    .map_err(|_| "FB mapping failed")?
+                    .flush();
+                current_virt = VirtAddr::new(current_virt.as_u64() + 4096);
+            }
+
+            self.framebuffer = virt_addr.as_mut_ptr();
+            self.fb_phys = first_frame.start_address().as_u64();
+
+            core::ptr::write_bytes(self.framebuffer as *mut u8, 0, fb_size);
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+            FB_OFFSET += (pages_needed * 4096) as u64;
+        }
+
+        serial_println!(
+            "Framebuffer mapped: {}x{} at virt={:p} phys=0x{:x}",
             self.width,
             self.height,
             self.framebuffer,
