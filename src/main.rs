@@ -13,29 +13,11 @@ use sos::{graphics, println, serial_println};
 entry_point!(kernel_main);
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
+    let (mut frame_allocator, mut mapper) = sos::init(boot_info);
+
     set_colors(Color::Green, Color::Black);
     println!("Welcome to sOS!");
     serial_println!("Welcome to sOS!");
-    let (mut frame_allocator, mut mapper) = sos::init(boot_info);
-
-    if let Some(gpu_dev) = sos::drivers::pci::find_virtio_gpu() {
-        serial_println!("Initializing VirtIO-GPU");
-
-        let mut gpu = sos::drivers::pci::VirtioGpu::new(gpu_dev);
-
-        match gpu.init(&mut mapper, &mut frame_allocator) {
-            Ok(()) => {
-                serial_println!("VirtIO-GPU initialized.");
-                graphics::test_sight(&mut gpu, &mut mapper, &mut frame_allocator);
-            }
-            Err(e) => {
-                serial_println!("Failed to initialize VirtIO-GPU: {}", e);
-            }
-        }
-    } else {
-        serial_println!("No VirtIO-GPU device found");
-    }
-    serial_println!("==================================");
 
     let drive_info = match sos::ata::identify_drive(true, AtaDevice::Slave) {
         Ok(info) => {
@@ -63,10 +45,29 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         sos::ata::AtaDevice::Slave,
         drive_info.unwrap().sectors as u32,
     );
+    serial_println!("==================================");
+
     if let Ok(some) = sos::fs::fat::list_dir("") {
         serial_println!("{:?}", some);
     }
 
+    if let Some(gpu_dev) = sos::drivers::pci::find_virtio_gpu() {
+        serial_println!("Initializing VirtIO-GPU");
+
+        let mut gpu = sos::drivers::pci::VirtioGpu::new(gpu_dev);
+
+        match gpu.init(&mut mapper, &mut frame_allocator) {
+            Ok(()) => {
+                serial_println!("VirtIO-GPU initialized.");
+                graphics::test_sight(&mut gpu, &mut mapper, &mut frame_allocator);
+            }
+            Err(e) => {
+                serial_println!("Failed to initialize VirtIO-GPU: {}", e);
+            }
+        }
+    } else {
+        serial_println!("No VirtIO-GPU device found");
+    }
     serial_println!("==================================");
 
     serial_println!("Entering an infinite loop.");

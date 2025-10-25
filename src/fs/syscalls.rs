@@ -62,20 +62,6 @@ lazy_static::lazy_static! {
     static ref FD_TABLE: Mutex<FdTable> = Mutex::new(FdTable::new());
 }
 
-//    pub unsafe fn copy_in_cstr(ptr: u64) -> String {
-//        let mut buf = alloc::vec::Vec::new();
-//        let mut p = ptr as *const u8;
-//        loop {
-//            let c = ptr::read(p);
-//            if c == 0 {
-//                break;
-//            }
-//            buf.push(c);
-//            p = p.add(1);
-//        }
-//        String::from_utf8(buf).unwrap_or_default()
-//    }
-
 pub unsafe fn copy_in_cstr(ptr: u64) -> String {
     let mut buf = Vec::new();
     let mut p = ptr as *const u8;
@@ -98,17 +84,26 @@ pub fn sys_open(filename_ptr: u64, flags: u64, _mode: u64) -> u64 {
     );
     let filename = unsafe { copy_in_cstr(filename_ptr) };
     serial_println!("sys_open: filename='{}'", filename);
-
     let writable = flags & 1 != 0;
     let readable = flags == 0 || flags & 2 != 0;
 
+    serial_println!("sys_open: readable={}, writable={}", readable, writable);
+
     let size = if readable {
+        serial_println!("sys_open: Calling fat::file_size for '{}'", filename);
         match fat::file_size(&filename) {
-            Ok(s) => s,
-            Err(_) if !writable => {
-                return u64::MAX;
+            Ok(s) => {
+                serial_println!("sys_open: file_size returned: {}", s);
+                s
             }
-            Err(_) => 0,
+            Err(e) => {
+                serial_println!("sys_open: file_size ERROR: {:?}", e);
+                if !writable {
+                    serial_println!("sys_open: Returning error (not writable)");
+                    return u64::MAX;
+                }
+                0
+            }
         }
     } else {
         0
@@ -120,14 +115,16 @@ pub fn sys_open(filename_ptr: u64, flags: u64, _mode: u64) -> u64 {
         size,
         writable,
     };
-
     let mut table = FD_TABLE.lock();
     match table.alloc_fd(file) {
         Some(fd) => {
             serial_println!("sys_open: Allocated fd: {}", fd);
             fd as u64
         }
-        None => u64::MAX,
+        None => {
+            serial_println!("sys_open: Failed to allocate fd!");
+            u64::MAX
+        }
     }
 }
 
