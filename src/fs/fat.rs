@@ -57,36 +57,42 @@ pub fn file_size(path: &str) -> Result<usize, &'static str> {
 
 pub fn read_file_range(path: &str, offset: usize, buf: &mut [u8]) -> Result<usize, &'static str> {
     let components = split_path(path);
-
     if components.len() != 1 {
         return Err("Only root directory files supported currently");
     }
-
     let file_name = components[0];
-
     let mut guard = VOLUME_MANAGER.lock();
     let manager = guard.as_mut().ok_or("No volume manager")?;
     let mut volume = manager
         .open_volume(VolumeIdx(0))
         .map_err(|_| "open_volume failed")?;
-
     let mut root_dir = volume.open_root_dir().map_err(|_| "open_root_dir failed")?;
     let mut file = root_dir
         .open_file_in_dir(file_name, Mode::ReadOnly)
         .map_err(|_| "open_file failed")?;
 
     if offset > 0 {
-        let mut skip_buf = [0u8; 512];
-        let mut skipped = 0;
-        while skipped < offset {
-            let to_skip = core::cmp::min(skip_buf.len(), offset - skipped);
-            let n = file
-                .read(&mut skip_buf[..to_skip])
-                .map_err(|_| "file.read failed")?;
-            if n == 0 {
-                return Ok(0); // EOF
+        let cluster_size = 512;
+        let full_clusters = offset / cluster_size;
+        let partial = offset % cluster_size;
+
+        if full_clusters > 0 {
+            let skip_bytes = full_clusters * cluster_size;
+            let mut skip_buf = alloc::vec![0u8; skip_bytes];
+            let n = file.read(&mut skip_buf).map_err(|_| "file.read failed")?;
+            if n < skip_bytes {
+                return Ok(0);
             }
-            skipped += n;
+        }
+
+        if partial > 0 {
+            let mut partial_buf = [0u8; 512];
+            let n = file
+                .read(&mut partial_buf[..partial])
+                .map_err(|_| "file.read failed")?;
+            if n < partial {
+                return Ok(0);
+            }
         }
     }
 

@@ -64,7 +64,6 @@ pub struct AtaController {
     pub command_port: PortWriteOnly<u8>,
     pub control_port: PortWriteOnly<u8>,
     pub alt_status_port: PortReadOnly<u8>,
-
     pub supports_lba48: [bool; 2],
     pub max_sectors: [u64; 2],
 }
@@ -96,6 +95,10 @@ impl AtaController {
         count: u16,
         buffer: &mut [u8],
     ) -> Result<(), AtaError> {
+        if count == 0 {
+            return Ok(());
+        }
+
         if buffer.len() < (count as usize * 512) {
             return Err(AtaError::BufferTooSmall);
         }
@@ -161,14 +164,17 @@ impl AtaController {
     }
 
     fn read_data_sectors(&mut self, count: u16, buffer: &mut [u8]) -> Result<(), AtaError> {
+        let buf_ptr = buffer.as_mut_ptr();
+
         for sector in 0..count {
             self.wait_data_ready()?;
 
-            let sector_start = sector as usize * 512;
-            for i in (0..512).step_by(2) {
-                let word = unsafe { self.data_port.read() };
-                buffer[sector_start + i] = word as u8;
-                buffer[sector_start + i + 1] = (word >> 8) as u8;
+            let offset = sector as usize * 256;
+            unsafe {
+                let dest = buf_ptr.add(offset * 2) as *mut u16;
+                for i in 0..256 {
+                    *dest.add(i) = self.data_port.read();
+                }
             }
         }
         Ok(())
@@ -180,6 +186,10 @@ impl AtaController {
         lba: u64,
         buffer: &[u8],
     ) -> Result<(), AtaError> {
+        if buffer.is_empty() {
+            return Ok(());
+        }
+
         if buffer.len() % 512 != 0 {
             return Err(AtaError::InvalidSectorSize);
         }
@@ -246,58 +256,50 @@ impl AtaController {
     }
 
     fn write_data_sectors(&mut self, count: u16, buffer: &[u8]) -> Result<(), AtaError> {
+        let buf_ptr = buffer.as_ptr();
+
         for sector in 0..count {
             self.wait_data_ready()?;
 
-            let sector_start = sector as usize * 512;
-            for i in (0..512).step_by(2) {
-                let word =
-                    (buffer[sector_start + i + 1] as u16) << 8 | (buffer[sector_start + i] as u16);
-                unsafe { self.data_port.write(word) };
+            let offset = sector as usize * 256;
+            unsafe {
+                let src = buf_ptr.add(offset * 2) as *const u16;
+                for i in 0..256 {
+                    self.data_port.write(*src.add(i));
+                }
             }
         }
 
-        unsafe { self.command_port.write(ATA_CMD_FLUSH_CACHE) };
+        unsafe {
+            self.command_port.write(ATA_CMD_FLUSH_CACHE);
+        }
         self.wait_ready()?;
 
         Ok(())
     }
 
     fn wait_data_ready(&mut self) -> Result<(), AtaError> {
-        for i in 0..10000 {
+        for _ in 0..5000 {
             let status = unsafe { self.alt_status_port.read() };
 
             if (status & ATA_STATUS_ERR) != 0 {
                 let error = unsafe { self.error_port.read() };
-                crate::serial_println!(
-                    "ATA: Data ready error - status: 0x{:02X}, error: 0x{:02X}",
-                    status,
-                    error
-                );
                 return Err(AtaError::Error(error));
             }
 
             if (status & ATA_STATUS_DF) != 0 {
-                crate::serial_println!("ATA: Device fault detected");
                 return Err(AtaError::DeviceFault);
             }
 
             if (status & ATA_STATUS_DRQ) != 0 {
                 return Ok(());
             }
-
-            if i % 1000 == 0 && i > 0 {
-                crate::serial_println!("ATA: Waiting for data ready, status: 0x{:02X}", status);
-            }
         }
 
-        crate::serial_println!("ATA: Timeout waiting for data ready");
         Err(AtaError::Timeout)
     }
 
     pub fn identify(&mut self, device: AtaDevice) -> Result<DriveInfo, AtaError> {
-        crate::serial_println!("ATA: Starting IDENTIFY for device {:?}", device);
-
         self.disable_interrupts();
         self.select_device(device)?;
         self.wait_ready()?;
@@ -311,7 +313,7 @@ impl AtaController {
             self.command_port.write(ATA_CMD_IDENTIFY);
         }
 
-        for i in 0..10000 {
+        for _ in 0..5000 {
             let status = unsafe { self.alt_status_port.read() };
 
             if status == 0xFF {
@@ -320,25 +322,15 @@ impl AtaController {
 
             if (status & ATA_STATUS_ERR) != 0 {
                 let error = unsafe { self.error_port.read() };
-                crate::serial_println!(
-                    "ATA: IDENTIFY error - status: 0x{:02X}, error: 0x{:02X}",
-                    status,
-                    error
-                );
                 return Err(AtaError::Error(error));
             }
 
             if (status & ATA_STATUS_DF) != 0 {
-                crate::serial_println!("ATA: Device fault during IDENTIFY");
                 return Err(AtaError::DeviceFault);
             }
 
             if (status & ATA_STATUS_DRQ) != 0 {
                 break;
-            }
-
-            if i % 1000 == 0 && i > 0 {
-                crate::serial_println!("ATA: Waiting for IDENTIFY data, status: 0x{:02X}", status);
             }
         }
 
@@ -347,7 +339,6 @@ impl AtaController {
             *word = unsafe { self.data_port.read() };
         }
 
-        crate::serial_println!("ATA: IDENTIFY completed successfully");
         let info = DriveInfo::from_identify_data(&data);
 
         let device_idx = device as usize;
@@ -378,25 +369,20 @@ impl AtaController {
         }
         self.delay_400ns();
 
-        for i in 0..1000 {
+        for _ in 0..1000 {
             let status = unsafe { self.alt_status_port.read() };
             if status != 0xFF && (status & ATA_STATUS_BSY) == 0 {
                 return Ok(());
             }
-
-            if i % 100 == 0 && i > 0 {
-                crate::serial_println!("ATA: Selecting device, status: 0x{:02X}", status);
-            }
         }
 
-        crate::serial_println!("ATA: Device selection timeout");
         Err(AtaError::DeviceNotFound)
     }
 
     fn wait_ready(&mut self) -> Result<(), AtaError> {
         self.delay_400ns();
 
-        for i in 0..10000 {
+        for _ in 0..5000 {
             let status = unsafe { self.alt_status_port.read() };
 
             if status == 0xFF {
@@ -405,29 +391,18 @@ impl AtaController {
 
             if (status & ATA_STATUS_ERR) != 0 {
                 let error = unsafe { self.error_port.read() };
-                crate::serial_println!(
-                    "ATA: Ready error - status: 0x{:02X}, error: 0x{:02X}",
-                    status,
-                    error
-                );
                 return Err(AtaError::Error(error));
             }
 
             if (status & ATA_STATUS_DF) != 0 {
-                crate::serial_println!("ATA: Device fault");
                 return Err(AtaError::DeviceFault);
             }
 
             if (status & ATA_STATUS_BSY) == 0 {
                 return Ok(());
             }
-
-            if i % 1000 == 0 && i > 0 {
-                crate::serial_println!("ATA: Waiting for ready, status: 0x{:02X}", status);
-            }
         }
 
-        crate::serial_println!("ATA: Timeout waiting for ready");
         Err(AtaError::Timeout)
     }
 }
@@ -450,8 +425,8 @@ impl DriveInfo {
         if data[0] == 0 {
             return Self {
                 model: "No Device".to_string(),
-                serial: "".to_string(),
-                firmware: "".to_string(),
+                serial: String::new(),
+                firmware: String::new(),
                 sectors: 0,
                 supports_lba48: false,
                 sector_size: 512,

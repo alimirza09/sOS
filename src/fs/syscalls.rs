@@ -131,36 +131,26 @@ pub fn sys_open(filename_ptr: u64, flags: u64, _mode: u64) -> u64 {
 pub fn sys_read(fd: u64, buf_ptr: u64, count: u64) -> u64 {
     let fd = fd as usize;
     let table = FD_TABLE.lock();
-
     let file = match table.get(fd) {
         Some(f) => f,
         None => return u64::MAX,
     };
-
     if file.offset >= file.size {
         return 0;
     }
-
     let to_read = core::cmp::min(count as usize, file.size - file.offset);
     let filename = file.filename.clone();
     let offset = file.offset;
-
     drop(table);
 
-    let mut temp_buf = alloc::vec::Vec::with_capacity(to_read);
-    temp_buf.resize(to_read, 0);
-
-    match fat::read_file_range(&filename, offset, &mut temp_buf[..]) {
+    match fat::read_file_range(&filename, offset, unsafe {
+        core::slice::from_raw_parts_mut(buf_ptr as *mut u8, to_read)
+    }) {
         Ok(n) => {
-            unsafe {
-                ptr::copy_nonoverlapping(temp_buf.as_ptr(), buf_ptr as *mut u8, n);
-            }
-
             let mut table = FD_TABLE.lock();
             if let Some(file) = table.get_mut(fd) {
                 file.offset += n;
             }
-
             n as u64
         }
         Err(_) => u64::MAX,
