@@ -59,7 +59,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         match gpu.init(&mut mapper, &mut frame_allocator) {
             Ok(()) => {
                 serial_println!("VirtIO-GPU initialized.");
-                graphics::test_sight(&mut gpu, &mut mapper, &mut frame_allocator);
+                graphics::test_sight_text(&mut gpu, &mut mapper, &mut frame_allocator);
             }
             Err(e) => {
                 serial_println!("Failed to initialize VirtIO-GPU: {}", e);

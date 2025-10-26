@@ -9,7 +9,7 @@ use x86_64::{
 };
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
-pub const HEAP_SIZE: usize = 4 * 1024 * 1024; // 4MB
+pub const HEAP_SIZE: usize = 10 * 1024 * 1024; // 4MB
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();

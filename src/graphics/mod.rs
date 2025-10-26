@@ -1,10 +1,5 @@
-use crate::{
-    drivers::pci::VirtioGpu,
-    fs::syscalls,
-    print, serial_print, serial_println,
-    syscall::{syscall_identifier, SYS_READ},
-};
-use sight::{bmp, Color, Framebuffer, Point, Sight};
+use crate::{drivers::pci::VirtioGpu, serial_println, syscall::SYS_READ};
+use sight::{bdf::parse_bdf_font, bmp, Color, Framebuffer, Point, Sight};
 use x86_64::structures::paging::{FrameAllocator, OffsetPageTable, Size4KiB};
 
 pub struct VirtioFramebuffer<'a, FA: FrameAllocator<Size4KiB>> {
@@ -113,5 +108,64 @@ pub fn test_sight<'a, FA: FrameAllocator<Size4KiB>>(
     ctx.draw_line(Point::new(50, 50), Point::new(300, 350), Color::WHITE);
     ctx.draw_line(Point::new(800, 50), Point::new(950, 300), Color::CYAN);
     ctx.fill_gradient_h(Rect::new(0, 650, 1024, 117), Color::PURPLE, Color::CYAN);
+    ctx.present().unwrap();
+}
+
+pub fn test_sight_text<'a, FA: FrameAllocator<Size4KiB>>(
+    gpu: &'a mut VirtioGpu,
+    mapper: &'a mut OffsetPageTable<'a>,
+    frame_allocator: &'a mut FA,
+) {
+    let fb = VirtioFramebuffer::new(gpu, mapper, frame_allocator);
+    let mut ctx = Sight::new(fb);
+    ctx.clear(Color::BLACK);
+
+    let filename = b"FONT.BDF\0";
+    let fd = crate::syscall::syscall_identifier(
+        crate::syscall::SYS_OPEN,
+        filename.as_ptr() as u64,
+        0,
+        0,
+    ) as i64;
+
+    if fd < 0 {
+        serial_println!("failed to open file");
+    } else {
+        let file_size = 2097152;
+        let mut buf = alloc::vec![0u8; file_size];
+
+        let bytes_read = crate::syscall::syscall_identifier(
+            SYS_READ,
+            fd as u64,
+            buf.as_mut_ptr() as u64,
+            file_size as u64,
+        ) as i64;
+
+        if bytes_read > 0 {
+            serial_println!("read {} bytes", bytes_read);
+            match parse_bdf_font(&buf[..bytes_read as usize]) {
+                Ok(font) => {
+                    serial_println!("font loaded {} glyphs", font.glyphs.len());
+                    serial_println!("font bbox {}x{}", font.bounding_box.0, font.bounding_box.1);
+
+                    // Test if 'H' exists
+                    if let Some(glyph) = font.get_glyph('H') {
+                        serial_println!("found H glyph: {}x{}", glyph.width, glyph.height);
+                    } else {
+                        serial_println!("H glyph missing");
+                    }
+
+                    font.draw_text("Hello World", 100, 100, |x, y| {
+                        serial_println!("drawing pixel at {},{}", x, y); // Add this
+                        ctx.put_pixel(x, y, Color::GREEN);
+                    });
+                }
+                Err(e) => {
+                    serial_println!("font parse error {}", e);
+                }
+            }
+        }
+    }
+
     ctx.present().unwrap();
 }
