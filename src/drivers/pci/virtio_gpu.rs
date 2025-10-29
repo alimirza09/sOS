@@ -1099,3 +1099,7 @@ impl VirtioGpu {
         }
     }
 }
+
+// NOTE: TEMPORARY
+unsafe impl Send for VirtioGpu {}
+unsafe impl Sync for VirtioGpu {}

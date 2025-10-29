@@ -24,6 +24,15 @@ use x86_64::structures::paging::OffsetPageTable;
 
 use crate::memory::BootInfoFrameAllocator;
 
+use lazy_static::lazy_static;
+use spin::Mutex;
+
+lazy_static! {
+    pub static ref GPU: Mutex<Option<drivers::pci::VirtioGpu>> = Mutex::new(None);
+    pub static ref MAPPER: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
+    pub static ref FRAME_ALLOCATOR: Mutex<Option<BootInfoFrameAllocator>> = Mutex::new(None);
+}
+
 pub fn hlt_loop() -> ! {
     loop {
         x86_64::instructions::hlt();

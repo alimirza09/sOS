@@ -1,6 +1,7 @@
 use crate::{drivers::pci::VirtioGpu, serial_println, syscall::SYS_READ};
-use sight::{bdf::parse_bdf_font, bmp, Color, Framebuffer, Point, Sight};
+use sight::{bdf::parse_bdf_font, Color, Framebuffer, Point, Sight};
 use x86_64::structures::paging::{FrameAllocator, OffsetPageTable, Size4KiB};
+pub mod syscalls;
 
 pub struct VirtioFramebuffer<'a, FA: FrameAllocator<Size4KiB>> {
     gpu: &'a mut VirtioGpu,
@@ -148,7 +149,6 @@ pub fn test_sight_text<'a, FA: FrameAllocator<Size4KiB>>(
                     serial_println!("font loaded {} glyphs", font.glyphs.len());
                     serial_println!("font bbox {}x{}", font.bounding_box.0, font.bounding_box.1);
 
-                    // Test if 'H' exists
                     if let Some(glyph) = font.get_glyph('H') {
                         serial_println!("found H glyph: {}x{}", glyph.width, glyph.height);
                     } else {
@@ -156,7 +156,7 @@ pub fn test_sight_text<'a, FA: FrameAllocator<Size4KiB>>(
                     }
 
                     font.draw_text("Hello World", 100, 100, |x, y| {
-                        serial_println!("drawing pixel at {},{}", x, y); // Add this
+                        serial_println!("drawing pixel at {},{}", x, y);
                         ctx.put_pixel(x, y, Color::GREEN);
                     });
                 }
