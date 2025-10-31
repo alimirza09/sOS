@@ -1,4 +1,6 @@
 use core::ptr;
+use x86_64::structures::paging::mapper::MapToError;
+use x86_64::structures::paging::Translate;
 use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags, Size4KiB};
 use x86_64::structures::paging::{Mapper, OffsetPageTable, PageSize};
 use x86_64::VirtAddr;
@@ -17,26 +19,47 @@ fn map_pages_at(
 ) -> Result<(), &'static str> {
     flags |= PageTableFlags::PRESENT;
 
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+
     let start_page = Page::containing_address(start);
     let end_addr = start + (size as u64) - 1u64;
     let end_page = Page::containing_address(end_addr);
 
     let mut current_page = start_page;
     loop {
-        let frame = frame_allocator.allocate_frame().ok_or("No free frames")?;
+        if mapper
+            .translate_addr(current_page.start_address())
+            .is_some()
+        {
+            return Err("virtual page already mapped (virtual address conflict)");
+        }
 
-        unsafe {
-            mapper
-                .map_to(current_page, frame, flags, frame_allocator)
-                .map_err(|_| "map_to failed")?
-                .flush();
+        let frame = frame_allocator
+            .allocate_frame()
+            .ok_or("No free frames (frame_allocator.allocate_frame returned None)")?;
+
+        let res = unsafe { mapper.map_to(current_page, frame, flags, frame_allocator) };
+        match res {
+            Ok(flush) => {
+                flush.flush();
+            }
+            Err(e) => {
+                return Err(match e {
+                    MapToError::FrameAllocationFailed => "map_to error: FrameAllocationFailed",
+                    MapToError::ParentEntryHugePage => {
+                        "map_to error: ParentEntryHugePage (hugepage conflict)"
+                    }
+                    _ => "map_to error: unknown",
+                });
+            }
         }
 
         if current_page == end_page {
             break;
         }
 
-        current_page = Page::containing_address(current_page.start_address() + Size4KiB::SIZE);
+        let next_addr = current_page.start_address() + Size4KiB::SIZE;
+        current_page = Page::containing_address(next_addr);
     }
 
     Ok(())
@@ -50,7 +73,8 @@ fn alloc_stack(
     let size = (num_pages as u64) * Size4KiB::SIZE;
     let start = VirtAddr::new(STACK_BASE);
 
-    let flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+    let mut flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+    flags |= PageTableFlags::USER_ACCESSIBLE;
     map_pages_at(mapper, frame_allocator, start, size as usize, flags)?;
 
     Ok(start + size)
@@ -82,8 +106,6 @@ pub fn run_elf_in_kernel_mode(
     for ph in elf.loadable_segments() {
         let file_size = ph.p_filesz as usize;
         let mem_size = ph.p_memsz as usize;
-        let file_offset = ph.p_offset as usize;
-
         if mem_size == 0 {
             continue;
         }
@@ -95,11 +117,20 @@ pub fn run_elf_in_kernel_mode(
         let map_vaddr = VirtAddr::new(seg_start_page_addr as u64);
 
         let mut flags = PageTableFlags::empty();
-        flags |= PageTableFlags::WRITABLE;
-
+        if (ph.p_flags & 0x2) != 0 {
+            flags |= PageTableFlags::WRITABLE;
+        }
         if (ph.p_flags & 0x1) == 0 {
             flags |= PageTableFlags::NO_EXECUTE;
         }
+
+        crate::serial_println!(
+            "Mapping segment: vaddr={:#x} filesz={} memsz={} map_size={}",
+            ph.p_vaddr,
+            file_size,
+            mem_size,
+            map_size
+        );
 
         if let Err(e) = map_pages_at(mapper, frame_allocator, map_vaddr, map_size, flags) {
             crate::serial_println!("Failed to map segment at {:#x}: {}", ph.p_vaddr, e);
@@ -109,7 +140,7 @@ pub fn run_elf_in_kernel_mode(
         unsafe {
             let dest = VirtAddr::new(ph.p_vaddr).as_mut_ptr::<u8>();
             if file_size > 0 {
-                let src_ptr = contents.as_ptr().add(file_offset);
+                let src_ptr = contents.as_ptr().add(ph.p_offset as usize);
                 ptr::copy_nonoverlapping(src_ptr, dest, file_size);
             }
             if mem_size > file_size {
