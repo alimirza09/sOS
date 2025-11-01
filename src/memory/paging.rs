@@ -61,30 +61,65 @@ unsafe impl FrameAllocator<Size4KiB> for EmptyFrameAllocator {
 
 pub struct BootInfoFrameAllocator {
     memory_map: &'static MemoryMap,
-    next: usize,
+    current_region: usize,
+    current_frame_in_region: u64,
 }
 
 impl BootInfoFrameAllocator {
     pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
-        BootInfoFrameAllocator {
+        let mut allocator = BootInfoFrameAllocator {
             memory_map,
-            next: 0,
-        }
-    }
+            current_region: 0,
+            current_frame_in_region: 0,
+        };
 
-    fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
-        let regions = self.memory_map.iter();
-        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
-        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
-        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
-        frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+        const MIN_FRAME_ADDR: u64 = 0x1000000;
+
+        for (idx, region) in memory_map.iter().enumerate() {
+            if region.region_type == MemoryRegionType::Usable {
+                if region.range.end_addr() > MIN_FRAME_ADDR {
+                    allocator.current_region = idx;
+
+                    if region.range.start_addr() < MIN_FRAME_ADDR {
+                        let skip_bytes = MIN_FRAME_ADDR - region.range.start_addr();
+                        allocator.current_frame_in_region = skip_bytes / 4096;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        allocator
     }
 }
 
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        let frame = self.usable_frames().nth(self.next);
-        self.next += 1;
-        frame
+        loop {
+            let region = self.memory_map.iter().nth(self.current_region)?;
+
+            if region.region_type != MemoryRegionType::Usable {
+                self.current_region += 1;
+                self.current_frame_in_region = 0;
+                continue;
+            }
+
+            let frame_addr = region.range.start_addr() + (self.current_frame_in_region * 4096);
+
+            if frame_addr < 0x1000000 {
+                self.current_frame_in_region += 1;
+                continue;
+            }
+
+            if frame_addr >= region.range.end_addr() {
+                self.current_region += 1;
+                self.current_frame_in_region = 0;
+                continue;
+            }
+
+            self.current_frame_in_region += 1;
+            return Some(PhysFrame::containing_address(PhysAddr::new(frame_addr)));
+        }
     }
 }

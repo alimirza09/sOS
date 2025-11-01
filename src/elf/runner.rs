@@ -17,9 +17,7 @@ fn map_pages_at(
     size: usize,
     mut flags: PageTableFlags,
 ) -> Result<(), &'static str> {
-    flags |= PageTableFlags::PRESENT;
-
-    flags |= PageTableFlags::USER_ACCESSIBLE;
+    flags |= PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
 
     let start_page = Page::containing_address(start);
     let end_addr = start + (size as u64) - 1u64;
@@ -34,9 +32,7 @@ fn map_pages_at(
             return Err("virtual page already mapped (virtual address conflict)");
         }
 
-        let frame = frame_allocator
-            .allocate_frame()
-            .ok_or("No free frames (frame_allocator.allocate_frame returned None)")?;
+        let frame = frame_allocator.allocate_frame().ok_or("No free frames")?;
 
         let res = unsafe { mapper.map_to(current_page, frame, flags, frame_allocator) };
         match res {
@@ -46,9 +42,7 @@ fn map_pages_at(
             Err(e) => {
                 return Err(match e {
                     MapToError::FrameAllocationFailed => "map_to error: FrameAllocationFailed",
-                    MapToError::ParentEntryHugePage => {
-                        "map_to error: ParentEntryHugePage (hugepage conflict)"
-                    }
+                    MapToError::ParentEntryHugePage => "map_to error: ParentEntryHugePage",
                     _ => "map_to error: unknown",
                 });
             }
@@ -58,9 +52,11 @@ fn map_pages_at(
             break;
         }
 
-        let next_addr = current_page.start_address() + Size4KiB::SIZE;
-        current_page = Page::containing_address(next_addr);
+        current_page = Page::containing_address(current_page.start_address() + Size4KiB::SIZE);
     }
+
+    use x86_64::instructions::tlb;
+    tlb::flush_all();
 
     Ok(())
 }
@@ -75,6 +71,7 @@ fn alloc_stack(
 
     let mut flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     flags |= PageTableFlags::USER_ACCESSIBLE;
+
     map_pages_at(mapper, frame_allocator, start, size as usize, flags)?;
 
     Ok(start + size)
@@ -101,7 +98,21 @@ pub fn run_elf_in_kernel_mode(
         }
     };
 
+    const USER_BASE: u64 = 0x400000;
+    let original_base = elf
+        .loadable_segments()
+        .next()
+        .map(|ph| ph.p_vaddr)
+        .unwrap_or(0);
+    let relocation_offset = USER_BASE.wrapping_sub(original_base);
+
     crate::serial_println!("ELF parsed: entry={:?}", elf.entry_point());
+    crate::serial_println!(
+        "Relocating from {:#x} to {:#x} (offset: {:#x})",
+        original_base,
+        USER_BASE,
+        relocation_offset
+    );
 
     for ph in elf.loadable_segments() {
         let file_size = ph.p_filesz as usize;
@@ -110,22 +121,23 @@ pub fn run_elf_in_kernel_mode(
             continue;
         }
 
-        let seg_start_page_addr = (ph.p_vaddr as usize) & !(PAGE_SIZE - 1);
-        let seg_end_addr = (ph.p_vaddr as usize).saturating_add(mem_size);
+        let relocated_vaddr = ph.p_vaddr.wrapping_add(relocation_offset);
+
+        let seg_start_page_addr = (relocated_vaddr as usize) & !(PAGE_SIZE - 1);
+        let seg_end_addr = (relocated_vaddr as usize).saturating_add(mem_size);
         let seg_end_page_addr = (seg_end_addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
         let map_size = seg_end_page_addr.saturating_sub(seg_start_page_addr);
         let map_vaddr = VirtAddr::new(seg_start_page_addr as u64);
 
-        let mut flags = PageTableFlags::empty();
-        if (ph.p_flags & 0x2) != 0 {
-            flags |= PageTableFlags::WRITABLE;
-        }
+        let mut flags = PageTableFlags::WRITABLE;
+
         if (ph.p_flags & 0x1) == 0 {
             flags |= PageTableFlags::NO_EXECUTE;
         }
 
         crate::serial_println!(
-            "Mapping segment: vaddr={:#x} filesz={} memsz={} map_size={}",
+            "Mapping segment: vaddr={:#x} (orig {:#x}) filesz={} memsz={} map_size={}",
+            relocated_vaddr,
             ph.p_vaddr,
             file_size,
             mem_size,
@@ -133,12 +145,12 @@ pub fn run_elf_in_kernel_mode(
         );
 
         if let Err(e) = map_pages_at(mapper, frame_allocator, map_vaddr, map_size, flags) {
-            crate::serial_println!("Failed to map segment at {:#x}: {}", ph.p_vaddr, e);
+            crate::serial_println!("Failed to map segment at {:#x}: {}", relocated_vaddr, e);
             return;
         }
 
         unsafe {
-            let dest = VirtAddr::new(ph.p_vaddr).as_mut_ptr::<u8>();
+            let dest = VirtAddr::new(relocated_vaddr).as_mut_ptr::<u8>();
             if file_size > 0 {
                 let src_ptr = contents.as_ptr().add(ph.p_offset as usize);
                 ptr::copy_nonoverlapping(src_ptr, dest, file_size);
@@ -152,7 +164,7 @@ pub fn run_elf_in_kernel_mode(
 
         crate::serial_println!(
             "Mapped seg vaddr={:#x} filesz={} memsz={} mapped_bytes={}",
-            ph.p_vaddr,
+            relocated_vaddr,
             file_size,
             mem_size,
             map_size
@@ -168,31 +180,14 @@ pub fn run_elf_in_kernel_mode(
         }
     };
 
-    let entry_addr = elf.entry_point().as_u64();
+    let entry_addr = elf.entry_point().as_u64().wrapping_add(relocation_offset);
 
     crate::serial_println!(
-        "Jumping to entry: {:#x} with stack top {:#x}",
+        "Jumping to entry: {:#x} (orig {:#x}) with stack top {:#x}",
         entry_addr,
+        elf.entry_point().as_u64(),
         stack_top.as_u64()
     );
-
-    let entry = elf.entry_point().as_u64() as usize;
-    let base_vaddr = elf
-        .loadable_segments()
-        .next()
-        .map(|ph| ph.p_vaddr as usize)
-        .unwrap_or(0);
-    let entry_offset = if entry >= base_vaddr {
-        entry - base_vaddr
-    } else {
-        0
-    };
-    crate::serial_println!("entry bytes:");
-    for i in 0..32 {
-        let b = contents.get(entry_offset + i).copied().unwrap_or(0);
-        crate::serial_print!("{}", alloc::format!("{:02x} ", b));
-    }
-    crate::serial_println!("");
 
     unsafe {
         let entry_fn: usize = entry_addr as usize;

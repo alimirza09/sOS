@@ -60,7 +60,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     serial_println!("==================================");
     use sos::memory::paging::BootInfoFrameAllocator;
     use x86_64::structures::paging::OffsetPageTable;
-
     let mut mapper_guard = sos::MAPPER.lock();
     let mapper: &mut OffsetPageTable<'static> =
         mapper_guard.as_mut().expect("MAPPER not initialized");
