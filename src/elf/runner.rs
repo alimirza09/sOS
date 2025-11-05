@@ -1,11 +1,8 @@
-use core::ptr;
 use x86_64::structures::paging::mapper::MapToError;
 use x86_64::structures::paging::Translate;
 use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags, Size4KiB};
 use x86_64::structures::paging::{Mapper, OffsetPageTable, PageSize};
 use x86_64::VirtAddr;
-
-use crate::elf::ElfFile;
 
 const PAGE_SIZE: usize = 4096;
 const STACK_BASE: u64 = 0xFFFF_FF80_0000_0000;
@@ -77,15 +74,59 @@ fn alloc_stack(
     Ok(start + size)
 }
 
-pub fn run_elf_in_kernel_mode(
-    file: &str,
-    mapper: &mut OffsetPageTable,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) {
-    let contents = match crate::elf::loader::extract_elf_exec(file) {
+pub fn run_elf_in_kernel_mode(file: &str) {
+    use crate::elf::loader;
+    use crate::elf::ElfFile;
+    use crate::paging::BootInfoFrameAllocator;
+    use crate::serial_println;
+    use crate::{FRAME_ALLOCATOR, MAPPER};
+    use core::ptr;
+    use x86_64::structures::paging::PageTableFlags;
+    use x86_64::VirtAddr;
+
+    let mut mapper_opt = {
+        let mut g = MAPPER.lock();
+        g.take()
+    };
+    let mut frame_alloc_opt = {
+        let mut g = FRAME_ALLOCATOR.lock();
+        g.take()
+    };
+
+    fn restore_globals(
+        mapper_opt: Option<OffsetPageTable<'static>>,
+        frame_alloc_opt: Option<BootInfoFrameAllocator>,
+    ) {
+        if let Some(mapper) = mapper_opt {
+            let mut g = MAPPER.lock();
+            *g = Some(mapper);
+        }
+        if let Some(fa) = frame_alloc_opt {
+            let mut g = FRAME_ALLOCATOR.lock();
+            *g = Some(fa);
+        }
+    }
+
+    if mapper_opt.is_none() {
+        serial_println!("run_elf_in_kernel_mode: MAPPER is None");
+        restore_globals(mapper_opt, frame_alloc_opt);
+        return;
+    }
+    if frame_alloc_opt.is_none() {
+        serial_println!("run_elf_in_kernel_mode: FRAME_ALLOCATOR is None");
+        restore_globals(mapper_opt, frame_alloc_opt);
+        return;
+    }
+
+    let mut mapper = mapper_opt.take().unwrap();
+    let mut frame_allocator = frame_alloc_opt.take().unwrap();
+
+    let contents = match loader::extract_elf_exec(file) {
         Some(c) => c,
         None => {
-            crate::serial_println!("Failed to read ELF file: {}", file);
+            serial_println!("Failed to read ELF file: {}", file);
+
+            restore_globals(Some(mapper), Some(frame_allocator));
             return;
         }
     };
@@ -93,7 +134,8 @@ pub fn run_elf_in_kernel_mode(
     let elf = match ElfFile::from_data(contents.clone()) {
         Ok(e) => e,
         Err(e) => {
-            crate::serial_println!("ELF parse error: {}", e);
+            serial_println!("ELF parse error: {}", e);
+            restore_globals(Some(mapper), Some(frame_allocator));
             return;
         }
     };
@@ -106,8 +148,8 @@ pub fn run_elf_in_kernel_mode(
         .unwrap_or(0);
     let relocation_offset = USER_BASE.wrapping_sub(original_base);
 
-    crate::serial_println!("ELF parsed: entry={:?}", elf.entry_point());
-    crate::serial_println!(
+    serial_println!("ELF parsed: entry={:?}", elf.entry_point());
+    serial_println!(
         "Relocating from {:#x} to {:#x} (offset: {:#x})",
         original_base,
         USER_BASE,
@@ -130,12 +172,11 @@ pub fn run_elf_in_kernel_mode(
         let map_vaddr = VirtAddr::new(seg_start_page_addr as u64);
 
         let mut flags = PageTableFlags::WRITABLE;
-
         if (ph.p_flags & 0x1) == 0 {
             flags |= PageTableFlags::NO_EXECUTE;
         }
 
-        crate::serial_println!(
+        serial_println!(
             "Mapping segment: vaddr={:#x} (orig {:#x}) filesz={} memsz={} map_size={}",
             relocated_vaddr,
             ph.p_vaddr,
@@ -144,8 +185,15 @@ pub fn run_elf_in_kernel_mode(
             map_size
         );
 
-        if let Err(e) = map_pages_at(mapper, frame_allocator, map_vaddr, map_size, flags) {
-            crate::serial_println!("Failed to map segment at {:#x}: {}", relocated_vaddr, e);
+        if let Err(e) = map_pages_at(
+            &mut mapper,
+            &mut frame_allocator,
+            map_vaddr,
+            map_size,
+            flags,
+        ) {
+            serial_println!("Failed to map segment at {:#x}: {}", relocated_vaddr, e);
+            restore_globals(Some(mapper), Some(frame_allocator));
             return;
         }
 
@@ -162,7 +210,7 @@ pub fn run_elf_in_kernel_mode(
             }
         }
 
-        crate::serial_println!(
+        serial_println!(
             "Mapped seg vaddr={:#x} filesz={} memsz={} mapped_bytes={}",
             relocated_vaddr,
             file_size,
@@ -172,22 +220,32 @@ pub fn run_elf_in_kernel_mode(
     }
 
     let stack_pages = 16usize;
-    let stack_top = match alloc_stack(mapper, frame_allocator, stack_pages) {
+    let stack_top = match alloc_stack(&mut mapper, &mut frame_allocator, stack_pages) {
         Ok(v) => v,
         Err(e) => {
-            crate::serial_println!("Failed to allocate stack: {}", e);
+            serial_println!("Failed to allocate stack: {}", e);
+            restore_globals(Some(mapper), Some(frame_allocator));
             return;
         }
     };
 
     let entry_addr = elf.entry_point().as_u64().wrapping_add(relocation_offset);
 
-    crate::serial_println!(
-        "Jumping to entry: {:#x} (orig {:#x}) with stack top {:#x}",
+    serial_println!(
+        "Preparing to jump to entry: {:#x} (orig {:#x}) with stack top {:#x}",
         entry_addr,
         elf.entry_point().as_u64(),
         stack_top.as_u64()
     );
+
+    {
+        let mut g = MAPPER.lock();
+        *g = Some(mapper);
+    }
+    {
+        let mut g = FRAME_ALLOCATOR.lock();
+        *g = Some(frame_allocator);
+    }
 
     unsafe {
         let entry_fn: usize = entry_addr as usize;

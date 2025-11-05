@@ -7,6 +7,8 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
+const PHYS_OFFSET: u64 = 0x18000000000;
+
 pub unsafe fn init(
     physical_memory_offset: VirtAddr,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
@@ -121,5 +123,13 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
             self.current_frame_in_region += 1;
             return Some(PhysFrame::containing_address(PhysAddr::new(frame_addr)));
         }
+    }
+}
+
+pub fn virt_to_phys(vaddr: VirtAddr) -> Option<PhysAddr> {
+    if vaddr.as_u64() >= PHYS_OFFSET {
+        Some(PhysAddr::new(vaddr.as_u64() - PHYS_OFFSET))
+    } else {
+        None
     }
 }

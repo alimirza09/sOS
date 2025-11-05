@@ -51,6 +51,7 @@ pub fn init(boot_info: &'static BootInfo) -> (BootInfoFrameAllocator, OffsetPage
     enable_fpu_and_sse();
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+    serial_println!("{}", boot_info.physical_memory_offset);
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
     let mut mapper = unsafe { paging::init(phys_mem_offset, &mut frame_allocator) };
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initialization failed");
