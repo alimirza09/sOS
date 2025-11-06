@@ -143,8 +143,11 @@ pub fn sys_gpu_map(user_addr: u64, _a1: u64, _a2: u64) -> u64 {
         user_addr
     );
 
-    let flags =
-        PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+    let flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::USER_ACCESSIBLE
+        | PageTableFlags::NO_CACHE
+        | PageTableFlags::WRITE_THROUGH;
     let mut page_index: usize = 0;
     let mut map_failed = false;
 

@@ -5,7 +5,7 @@ use x86_64::structures::paging::{Mapper, OffsetPageTable, PageSize};
 use x86_64::VirtAddr;
 
 const PAGE_SIZE: usize = 4096;
-const STACK_BASE: u64 = 0xFFFF_FF80_0000_0000;
+const STACK_BASE: u64 = 0x0000_7FFF_F000_0000;
 
 fn map_pages_at(
     mapper: &mut OffsetPageTable,
@@ -249,12 +249,25 @@ pub fn run_elf_in_kernel_mode(file: &str) {
 
     unsafe {
         let entry_fn: usize = entry_addr as usize;
+
+        let user_cs = crate::gdt::user_code_selector().0 as u64;
+        let user_ss = crate::gdt::user_data_selector().0 as u64;
+
+        let mut stack_ptr = stack_top.as_u64();
+        stack_ptr -= 8;
+
         core::arch::asm!(
-            "mov rsp, {0}",
-            "xor rbp, rbp",
-            "jmp {1}",
-            in(reg) stack_top.as_u64(),
-            in(reg) entry_fn,
+            "push {ss}",
+            "push {stack}",
+            "push 0x202",
+            "push {cs}",
+            "push {entry}",
+            "iretq",
+
+            ss = in(reg) user_ss,
+            cs = in(reg) user_cs,
+            stack = in(reg) stack_ptr,
+            entry = in(reg) entry_fn,
             options(noreturn)
         );
     }

@@ -21,11 +21,12 @@
 //! - The syscall handler extracts `rax`, `rdi`, `rsi`, `rdx` into Rust and
 //!   dispatches via `syscall::syscall_identifier`.
 
-use crate::{gdt, hlt_loop, println};
+use crate::{gdt, hlt_loop, println, serial_println};
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::PrivilegeLevel;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -57,6 +58,8 @@ lazy_static! {
         let mut idt = InterruptDescriptorTable::new();
         idt.breakpoint.set_handler_fn(breakpoint_handler);
         idt.page_fault.set_handler_fn(page_fault_handler);
+        idt.general_protection_fault
+            .set_handler_fn(general_protection_fault_handler);
         unsafe {
             idt.double_fault
                 .set_handler_fn(double_fault_handler)
@@ -68,7 +71,9 @@ lazy_static! {
         idt[InterruptIndex::AtaPrimary.as_usize()].set_handler_fn(ata_primary_interrupt_handler);
         idt[InterruptIndex::AtaSecondary.as_usize()]
             .set_handler_fn(ata_secondary_interrupt_handler);
-        idt[0x80].set_handler_fn(syscall_handler);
+        idt[0x80]
+            .set_handler_fn(syscall_handler)
+            .set_privilege_level(PrivilegeLevel::Ring3);
 
         idt
     };
@@ -93,6 +98,7 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 
     let result = crate::syscall::syscall_identifier(num, a0, a1, a2);
 
+    serial_println!("Syscall returned: {}", result);
     unsafe {
         core::arch::asm!("mov rax, {}", in(reg) result);
     }
@@ -169,4 +175,15 @@ extern "x86-interrupt" fn ata_secondary_interrupt_handler(_stack_frame: Interrup
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::AtaSecondary.as_u8());
     }
+}
+
+extern "x86-interrupt" fn general_protection_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    use crate::serial_println;
+    serial_println!("EXCEPTION: GENERAL PROTECTION FAULT");
+    serial_println!("Error Code: {:#x}", error_code);
+    serial_println!("{:#?}", stack_frame);
+    panic!("GPF");
 }
