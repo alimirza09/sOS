@@ -1,3 +1,4 @@
+use crate::elf::*;
 use x86_64::structures::paging::mapper::MapToError;
 use x86_64::structures::paging::Translate;
 use x86_64::structures::paging::{FrameAllocator, Page, PageTableFlags, Size4KiB};
@@ -6,6 +7,7 @@ use x86_64::VirtAddr;
 
 const PAGE_SIZE: usize = 4096;
 const STACK_BASE: u64 = 0x0000_7FFF_F000_0000;
+const USER_BASE: u64 = 0x400000;
 
 fn map_pages_at(
     mapper: &mut OffsetPageTable,
@@ -125,7 +127,6 @@ pub fn run_elf_in_kernel_mode(file: &str) {
         Some(c) => c,
         None => {
             serial_println!("Failed to read ELF file: {}", file);
-
             restore_globals(Some(mapper), Some(frame_allocator));
             return;
         }
@@ -140,7 +141,6 @@ pub fn run_elf_in_kernel_mode(file: &str) {
         }
     };
 
-    const USER_BASE: u64 = 0x400000;
     let original_base = elf
         .loadable_segments()
         .next()
@@ -217,6 +217,68 @@ pub fn run_elf_in_kernel_mode(file: &str) {
             mem_size,
             map_size
         );
+    }
+
+    if elf.header.e_type == ELF_TYPE_DYN {
+        serial_println!("Processing relocations for PIE binary...");
+
+        let mut rela_offset = 0u64;
+        let mut rela_size = 0u64;
+
+        for ph in elf.program_headers.iter() {
+            if ph.p_type == PT_DYNAMIC {
+                let dynamic_vaddr = ph.p_vaddr.wrapping_add(relocation_offset);
+                let dynamic_count = ph.p_memsz / 16;
+
+                unsafe {
+                    let dynamic_ptr = dynamic_vaddr as *const u64;
+                    for i in 0..dynamic_count {
+                        let tag = *dynamic_ptr.add((i * 2) as usize);
+                        let val = *dynamic_ptr.add((i * 2 + 1) as usize);
+
+                        if tag == DT_NULL {
+                            break;
+                        }
+                        if tag == DT_RELA {
+                            rela_offset = val;
+                        }
+                        if tag == DT_RELASZ {
+                            rela_size = val;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        if rela_offset > 0 && rela_size > 0 {
+            let rela_vaddr = rela_offset.wrapping_add(relocation_offset);
+            let rela_count = rela_size / 24;
+
+            serial_println!("Found {} relocations at {:#x}", rela_count, rela_vaddr);
+
+            unsafe {
+                let rela_ptr = rela_vaddr as *const u64;
+                for i in 0..rela_count {
+                    let r_offset = *rela_ptr.add((i * 3) as usize);
+                    let r_info = *rela_ptr.add((i * 3 + 1) as usize);
+                    let r_addend = *rela_ptr.add((i * 3 + 2) as usize) as i64;
+
+                    let r_type = (r_info & 0xFFFFFFFF) as u32;
+
+                    if r_type == R_X86_64_RELATIVE {
+                        let target_addr = r_offset.wrapping_add(relocation_offset);
+                        let value = (relocation_offset as i64 + r_addend) as u64;
+
+                        *(target_addr as *mut u64) = value;
+                    }
+                }
+            }
+
+            serial_println!("Relocations applied successfully!");
+        } else {
+            serial_println!("No relocations found");
+        }
     }
 
     let stack_pages = 16usize;

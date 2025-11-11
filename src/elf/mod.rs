@@ -9,6 +9,7 @@ pub const ELF_CLASS_64: u8 = 2;
 pub const ELF_DATA_LSB: u8 = 1;
 pub const ELF_VERSION_CURRENT: u8 = 1;
 pub const ELF_TYPE_EXEC: u16 = 2;
+pub const ELF_TYPE_DYN: u16 = 3;
 pub const ELF_MACHINE_X86_64: u16 = 0x3e;
 
 pub const PT_NULL: u32 = 0;
@@ -22,6 +23,20 @@ pub const PT_PHDR: u32 = 6;
 pub const PF_X: u32 = 1;
 pub const PF_W: u32 = 2;
 pub const PF_R: u32 = 4;
+
+pub const DT_NULL: u64 = 0;
+pub const DT_RELA: u64 = 7;
+pub const DT_RELASZ: u64 = 8;
+pub const DT_RELAENT: u64 = 9;
+
+pub const R_X86_64_RELATIVE: u32 = 8;
+
+#[repr(C)]
+pub struct Rela {
+    pub r_offset: u64,
+    pub r_info: u64,
+    pub r_addend: i64,
+}
 
 #[repr(C)]
 pub struct ElfHeader {
@@ -79,7 +94,7 @@ impl ElfFile {
             return Err(ElfError::UnsupportedEndianness);
         }
 
-        if header.e_type != ELF_TYPE_EXEC {
+        if header.e_type != ELF_TYPE_EXEC && header.e_type != ELF_TYPE_DYN {
             return Err(ElfError::NotExecutable);
         }
 
