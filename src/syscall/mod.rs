@@ -89,5 +89,55 @@ pub fn sys_exit(code: u64, _a1: u64, _a2: u64) -> u64 {
     serial_println!("Process exit with code: {}", code);
     // TODO: cleanup process structures
     // NOTE: TEMPORARY
+    debug_framebuffer();
     crate::hlt_loop();
+}
+
+pub fn debug_framebuffer() {
+    use crate::serial_println;
+
+    serial_println!("=== Checking framebuffer contents ===");
+
+    unsafe {
+        let fb = 0xffffa00001000000 as *const u32;
+
+        serial_println!("Pixel (0,0) - should be white from diagonal: {:#x}", *fb);
+        serial_println!(
+            "Pixel (100,100) - red line: {:#x}",
+            *fb.add(100 * 1024 + 100)
+        );
+        serial_println!(
+            "Pixel (200,200) - blue rect: {:#x}",
+            *fb.add(200 * 1024 + 200)
+        );
+        serial_println!(
+            "Pixel (350,300) - inside blue rect: {:#x}",
+            *fb.add(300 * 1024 + 350)
+        );
+        serial_println!(
+            "Pixel (512,384) - green circle center: {:#x}",
+            *fb.add(384 * 1024 + 512)
+        );
+
+        let mut black_count = 0;
+        let mut non_black_count = 0;
+
+        for i in 0..(1024 * 768) {
+            let pixel = *fb.add(i);
+            if pixel == 0xFF000000 || pixel == 0 {
+                black_count += 1;
+            } else {
+                non_black_count += 1;
+                if non_black_count <= 10 {
+                    serial_println!("Non-black pixel at {}: {:#x}", i, pixel);
+                }
+            }
+        }
+
+        serial_println!(
+            "Black pixels: {}, Non-black pixels: {}",
+            black_count,
+            non_black_count
+        );
+    }
 }

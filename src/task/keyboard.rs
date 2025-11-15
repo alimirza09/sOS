@@ -10,7 +10,7 @@ use futures_util::{
     task::AtomicWaker,
 };
 use lazy_static::lazy_static;
-use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
 use spin::Mutex;
 
 pub static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
@@ -41,7 +41,6 @@ impl RingBuffer {
             self.buffer[self.head] = Some(c);
             self.head = next;
         }
-        // TODO: else
     }
 
     pub fn pop(&mut self) -> Option<char> {

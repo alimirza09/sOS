@@ -55,19 +55,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     *sos::MAPPER.lock() = Some(mapper);
     *sos::FRAME_ALLOCATOR.lock() = Some(frame_allocator);
+
     serial_println!("==================================");
     serial_println!("System initialized");
     serial_println!("==================================");
-
-    //    use sos::memory::paging::BootInfoFrameAllocator;
-    //    use x86_64::structures::paging::OffsetPageTable;
-    //    let mut mapper_guard = sos::MAPPER.lock();
-    //    let mapper: &mut OffsetPageTable<'static> =
-    //        mapper_guard.as_mut().expect("MAPPER not initialized");
-    //
-    //    let mut fa_guard = sos::FRAME_ALLOCATOR.lock();
-    //    let frame_alloc: &mut BootInfoFrameAllocator =
-    //        fa_guard.as_mut().expect("FRAME_ALLOCATOR not initialized");
 
     sos::elf::runner::run_elf_in_kernel_mode("hello.elf");
 

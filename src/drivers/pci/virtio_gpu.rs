@@ -647,7 +647,7 @@ impl VirtioGpu {
         Ok(())
     }
 
-    fn attach_backing(
+    pub fn attach_backing(
         &mut self,
         resource_id: u32,
         addr: u64,
@@ -1100,6 +1100,5 @@ impl VirtioGpu {
     }
 }
 
-// NOTE: TEMPORARY
 unsafe impl Send for VirtioGpu {}
 unsafe impl Sync for VirtioGpu {}
